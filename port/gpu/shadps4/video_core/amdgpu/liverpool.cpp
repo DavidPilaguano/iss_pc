@@ -168,6 +168,9 @@ void Liverpool::Process(std::stop_token stoken) {
                 std::scoped_lock lock{queue.m_access};
                 queue.submits.pop();
 
+                if (curr_qid != GfxQueueId) {
+                    asc_submits.fetch_sub(1, std::memory_order_relaxed);
+                }
                 --num_submits;
                 std::scoped_lock lock2{submit_mutex};
                 submit_cv.notify_all();
@@ -794,8 +797,23 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
     }
 
     const auto base_addr = reinterpret_cast<uintptr_t>(dcb.data());
+    // tlg: TLG_COMPUTE_FAIRNESS=N (0 off): the PS4 runs its compute queues alongside graphics,
+    // and the guest reads their results (inFAMOUS' particle counts) early. Here a compute
+    // submission was recorded only when the graphics queue blocked, behind all the graphics before
+    // it in the one Vulkan queue. Every N graphics packets, with compute work queued, the graphics
+    // queue gives way to it. From the weshayoub92 shadPS4 fork (asc_yield_packets, 153a5aa7), on
+    // with 16 in the Castlesea port (ISS_COMPUTE_FAIRNESS).
+    static const u32 fairness_packets = [] {
+        const char* env = std::getenv("TLG_COMPUTE_FAIRNESS");
+        return env && *env ? static_cast<u32>(std::strtoul(env, nullptr, 10)) : 0u;
+    }();
     while (!dcb.empty()) {
         ProcessCommands();
+        if (fairness_packets != 0 && asc_submits.load(std::memory_order_relaxed) != 0 &&
+            ++gfx_packets_since_yield >= fairness_packets) {
+            gfx_packets_since_yield = 0;
+            YIELD_GFX();
+        }
 
         const auto* header = reinterpret_cast<const PM4Header*>(dcb.data());
         const u32 type = header->type;
@@ -1861,6 +1879,8 @@ void Liverpool::SubmitAsc(u32 gnm_vqid, std::span<const u32> acb) {
 
     const auto vqid = gnm_vqid - 1;
     const auto& task = ProcessCompute(acb, vqid);
+    // Counted before the command processor can see (and complete) the submission.
+    asc_submits.fetch_add(1, std::memory_order_relaxed);
     {
         std::scoped_lock lock{queue.m_access};
         queue.submits.emplace(task.handle);
