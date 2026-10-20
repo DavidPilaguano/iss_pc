@@ -34,6 +34,10 @@ namespace iss { extern std::atomic<unsigned> g_preload_entries, g_preload_total;
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+// boost.asio needs Winsock 2 before <windows.h> pulls in the old WinSock.h.
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
 #include <windows.h>
 #include <tlhelp32.h>
 #include <boost/asio/io_context.hpp>
