@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#ifdef _WIN32
+// First: system headers below (SDL3, libc++) may bring <windows.h>, hence the old WinSock.h
+// boost.asio refuses, before the include further down.
+#include <winsock2.h>
+#endif
 #include "iss_gpu.h"
 #include "native_shadow.h"
 #include "native_gbuffer.h"
