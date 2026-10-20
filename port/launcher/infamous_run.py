@@ -88,6 +88,9 @@ def __getattr__(name):  # old code that still reads tlg_run.USER_DIR gets the cu
 
 LOG_DIR = OUT_DIR / 'logs'
 PROBE = OUT_DIR / ('tlg-probe.exe' if os.name == 'nt' else 'tlg-probe')
+# TLG_PROBE (ISS_PROBE): another probe build next to it, e.g. tlg-probe-cs (the Castlesea renderer).
+if os.environ.get('TLG_PROBE') or os.environ.get('ISS_PROBE'):
+    PROBE = OUT_DIR / Path(os.environ.get('TLG_PROBE') or os.environ['ISS_PROBE']).name
 KEEP_LOGS = 30
 
 # Game language: PS4 system language ids (sceSystemServiceParamGetInt LANG). Which of them the

@@ -108,6 +108,19 @@ fi
 if [[ ${1:-} != --test-only ]]; then
     "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -no-pie -DTLG_BUILD_COMMIT="\"$TLG_BUILD_COMMIT\"" "${includes[@]}" -I. -Isrc src/probe.c "${runtime[@]}" src/cpu_check.c src/vulkan_smoke.c out/isa_emulate.o src/isa_rewrite.c out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o out/tlg-probe
     echo "Built $PWD/out/tlg-probe"
+    # TLG_CASTLESEA=1 (ISS_CASTLESEA): also the Castlesea renderer (gpu_castlesea/README.md) and
+    # the probe that uses it, out/tlg-probe-cs (TLG_PROBE=tlg-probe-cs runs it). Needs clang.
+    if [[ ${TLG_CASTLESEA:-${ISS_CASTLESEA:-}} == 1 ]]; then
+        cmake -S gpu_castlesea -B out/gpu_castlesea -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang >/dev/null
+        if ! ninja -C out/gpu_castlesea issgpu > out/gpu_castlesea-build.log 2>&1; then
+            grep -v '^\[' out/gpu_castlesea-build.log | tail -40 >&2
+            echo 'Castlesea renderer build failed (full log: out/gpu_castlesea-build.log)' >&2; exit 1
+        fi
+        cs=(-Lout/gpu_castlesea -lissgpu -Wl,-rpath,'$ORIGIN/gpu_castlesea' -Wl,-rpath,"$PWD/out/gpu_castlesea" -rdynamic)
+        "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -no-pie -DTLG_BUILD_COMMIT="\"$TLG_BUILD_COMMIT\"" "${includes[@]}" -I. -Isrc src/probe.c "${runtime[@]}" src/cpu_check.c src/vulkan_smoke.c out/isa_emulate.o src/isa_rewrite.c out/libatrac9.a -lm "${cs[@]}" "${libraries[@]}" -o out/tlg-probe-cs
+        echo "Built $PWD/out/tlg-probe-cs (Castlesea renderer)"
+    fi
     # GPU check for run.sh (live_resolution=auto): links only the Vulkan loader.
     "$CC" -std=c11 -O2 -Wall -Wextra -Werror -Igpu/shadps4 tools/gpu_capabilities.c "${libraries[@]}" -o out/tlg-gpu-capabilities
 fi

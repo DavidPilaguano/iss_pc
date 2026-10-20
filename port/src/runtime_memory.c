@@ -853,6 +853,22 @@ void *runtime_memory_backing_view(uintptr_t address, uint64_t size) {
     read_unlock();
     return view;
 }
+/* tlg: the Castlesea renderer's host interface (gpu_castlesea): direct mappings with their backing
+ * view, the mapping table's generation, and a shared hold on the table while it publishes. */
+void runtime_memory_visit(void (*visit)(uint64_t address, uint64_t size, uint8_t *backing)) {
+    read_lock();
+    size_t n=vma_count;
+    Vma *copy=malloc((n ? n : 1)*sizeof(Vma));
+    if (copy) memcpy(copy,vmas,n*sizeof(Vma));
+    read_unlock();
+    if (!copy) return;
+    for (size_t i=0;i<n;++i)
+        if (copy[i].kind==KIND_DIRECT) visit(copy[i].start,copy[i].end-copy[i].start,backing_base+copy[i].phys);
+    free(copy);
+}
+uint64_t runtime_memory_epoch(void) { return __atomic_load_n(&table_generation,__ATOMIC_ACQUIRE); }
+uint64_t runtime_memory_lock_shared(void) { read_lock(); return __atomic_load_n(&table_generation,__ATOMIC_ACQUIRE); }
+void runtime_memory_unlock_shared(void) { read_unlock(); }
 /* Per-thread cache of recently found regions for the GPU's per-draw queries:
  * entries hold for as long as the table generation they were read at. */
 typedef struct { uint64_t generation; uintptr_t start, end; int kind; } CachedRegion;
