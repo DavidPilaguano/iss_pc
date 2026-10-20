@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
-#include <execution>
+#include "parallel.h"
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -99,7 +99,7 @@ void ParallelGuestCopy(Core::MemoryManager* memory, VAddr source, u8* dest, u64 
     }
     std::vector<u64> chunks((bytes + Chunk - 1) / Chunk);
     for (u64 i = 0; i < chunks.size(); ++i) chunks[i] = i * Chunk;
-    std::for_each(std::execution::par, chunks.begin(), chunks.end(), [&](u64 offset) {
+    ISS_PAR_FOR_EACH(chunks.begin(), chunks.end(), [&](u64 offset) {
         memory->CopySparseMemory(source + offset, dest + offset, std::min(Chunk, bytes - offset));
     });
 }

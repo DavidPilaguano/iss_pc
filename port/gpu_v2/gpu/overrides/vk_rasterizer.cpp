@@ -1,6 +1,6 @@
 #include <shared_mutex>
 #include <algorithm>
-#include <execution>
+#include "parallel.h"
 #include "native_item_identity.h"
 #include "repeat_census.h"
 #include "unified_memory.h"
@@ -5070,7 +5070,7 @@ void Rasterizer::CopyBuffer(VAddr dst, VAddr src, u32 num_bytes, bool dst_gds, b
                 constexpr u32 Chunk = 1u << 20;
                 std::vector<u32> chunks((num_bytes + Chunk - 1) / Chunk);
                 for (u32 i = 0; i < chunks.size(); ++i) chunks[i] = i * Chunk;
-                std::for_each(std::execution::par, chunks.begin(), chunks.end(), [&](u32 offset) {
+                ISS_PAR_FOR_EACH(chunks.begin(), chunks.end(), [&](u32 offset) {
                     std::memcpy(std::bit_cast<u8*>(dst) + offset, std::bit_cast<const u8*>(src) + offset,
                                 std::min(Chunk, num_bytes - offset));
                 });
@@ -5235,7 +5235,7 @@ bool Rasterizer::CopyBufferHostBatch(std::span<const HostCopy> copies) {
         BeforeGpuThreadWrite(begin, end - begin);
         InvalidateMemory(begin, end - begin, true);
     }
-    std::for_each(std::execution::par, copies.begin(), copies.end(), [](const HostCopy& copy) {
+    ISS_PAR_FOR_EACH(copies.begin(), copies.end(), [](const HostCopy& copy) {
         std::memcpy(std::bit_cast<void*>(copy.dst), std::bit_cast<const void*>(copy.src),
                     copy.size);
     });
