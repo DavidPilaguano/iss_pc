@@ -42,7 +42,7 @@ All GPL-2.0-or-later (except the two header libraries above).
 ## Build and run
 
 ```sh
-TLG_RENDERER_V2=1 bash port/build.sh       # also builds out/gpu_v2 and out/tlg-probe-v2 (clang)
+TLG_RENDERER_V2=1 bash port/build.sh       # also builds out/gpu_v2 and out/tlg-probe-v2[.exe] (clang)
 port/scripts/play_v2.sh           # its launcher's defaults (defaults.env), this port's saves
 ```
 
@@ -53,5 +53,8 @@ Measured (RTX 2060, Linux, 11% save, scripted route): first start compiles the 9
 of the job file in 14 s and 7952 compute shaders in 85 s; in game then 14 graphics pipelines and no
 compute shader are compiled (1097 and 21 without the job file).
 
-Not yet: mouse capture, the renderer's ImGui still composes the game image, native passes on NVIDIA,
-Windows build of this directory.
+Windows: built with MSYS2 CLANG64 as a static library linked into `out/tlg-probe-v2.exe`
+(`compat/mingw.h` for the MSVC intrinsics MinGW lacks); both CI packages ship it. Not tested on a
+Windows machine yet.
+
+Not yet: mouse capture, the renderer's ImGui still composes the game image, native passes on NVIDIA.

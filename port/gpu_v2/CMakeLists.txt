@@ -4,7 +4,8 @@
 #             (pc-port/third_party/shadPS4-perf-local.patch), the files this build uses
 #   gpu/      Castlesea/infamous-second-son-pc-port 8e167dc pc-port/gpu, adapted to Linux and to
 #             this port's runtime (gpu_host.cpp, precompile_jobs.inl)
-#   compat/   the Win32 subset it uses, over POSIX; stb and nlohmann/json headers
+#   compat/   stb and nlohmann/json headers, tracy stubs; compat/linux/ the Win32 subset it uses,
+#             over POSIX (Linux only: on Windows the real headers)
 # The player-facing interface is this port's own (gpu/shim/tlg_overlay.cpp and its settings).
 # Sources as pc-port/scripts/build_gpu.py lists them. See README.md.
 cmake_minimum_required(VERSION 3.22)
@@ -25,8 +26,14 @@ find_package(tsl-robin-map REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(XXHASH REQUIRED IMPORTED_TARGET libxxhash)
 pkg_check_modules(SDL3 REQUIRED IMPORTED_TARGET sdl3)
-pkg_check_modules(ZYDIS REQUIRED IMPORTED_TARGET zydis)
-pkg_check_modules(CRYPTO REQUIRED IMPORTED_TARGET libcrypto)
+find_package(Zydis QUIET)
+if (NOT Zydis_FOUND)
+    pkg_check_modules(ZYDIS REQUIRED IMPORTED_TARGET zydis)
+    add_library(Zydis::Zydis ALIAS PkgConfig::ZYDIS)
+endif()
+if (NOT WIN32)
+    pkg_check_modules(CRYPTO REQUIRED IMPORTED_TARGET libcrypto) # BCrypt's SHA-256 (compat/linux/bcrypt.h)
+endif()
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavformat libavcodec libavutil libswscale libswresample)
 find_package(miniz QUIET)
 if (NOT miniz_FOUND)
@@ -122,11 +129,21 @@ set(OURS_SOURCES ${PORT}/shim/tlg_overlay.cpp ${PORT}/shim/tlg_settings.cpp
 list(REMOVE_ITEM CS_SOURCES ${CS}/save_dialog_ui.cpp)
 list(APPEND ALL ${CS_SOURCES})
 
-add_library(issgpu SHARED ${ALL} ${OURS_SOURCES}
+# Windows: a static library linked into tlg-probe-v2.exe (as port/gpu does for tlg-probe.exe), since
+# a DLL cannot leave the runtime_* symbols for the executable to resolve.
+if (WIN32)
+    set(ISSGPU_KIND STATIC)
+else()
+    set(ISSGPU_KIND SHARED)
+endif()
+add_library(issgpu ${ISSGPU_KIND} ${ALL} ${OURS_SOURCES}
     ${PORT}/third_party/imgui/backends/imgui_impl_vulkan.cpp
     ${PORT}/third_party/imgui/imgui.cpp ${PORT}/third_party/imgui/imgui_draw.cpp
     ${PORT}/third_party/imgui/imgui_tables.cpp ${PORT}/third_party/imgui/imgui_widgets.cpp)
 add_dependencies(issgpu host_shaders)
+if (NOT WIN32)
+    target_include_directories(issgpu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/compat/linux)
+endif()
 target_include_directories(issgpu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/compat ${CS}/shim ${CS}
     ${PORT}/third_party/imgui/backends ${PORT}/.. ${SRC}/core/libraries/gnmdriver ${SRC} ${SRC}/..
     ${SHADER_INCLUDE} ${PORT}/third_party/gcn/include ${PORT}/third_party/half/include
@@ -136,13 +153,46 @@ target_include_directories(issgpu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/compat ${C
 # share (core/memory.h, sdl_window.h) are the renderer's.
 target_include_directories(issgpu PRIVATE ${PORT}/shim)
 target_compile_definitions(issgpu PRIVATE BOOST_ASIO_STANDALONE NDEBUG IMGUI_USER_CONFIG="imgui/imgui_config.h")
-target_compile_options(issgpu PRIVATE -O2 -g1 -fdeclspec -Wno-deprecated-declarations -include ${CMAKE_CURRENT_SOURCE_DIR}/compat/iss_win_compat.h)
-target_link_options(issgpu PRIVATE -Wl,--allow-shlib-undefined)
-target_link_libraries(issgpu PRIVATE Vulkan::Vulkan fmt::fmt Boost::headers tsl::robin_map PkgConfig::XXHASH
-    PkgConfig::SDL3 PkgConfig::ZYDIS PkgConfig::CRYPTO miniz::miniz PkgConfig::FFMPEG sirit)
+target_compile_options(issgpu PRIVATE -O2 -g1 -fdeclspec -Wno-deprecated-declarations)
+target_link_libraries(issgpu PUBLIC Vulkan::Vulkan fmt::fmt Boost::headers tsl::robin_map PkgConfig::XXHASH
+    PkgConfig::SDL3 Zydis::Zydis miniz::miniz PkgConfig::FFMPEG sirit)
+if (WIN32)
+    target_compile_definitions(issgpu PRIVATE NOMINMAX)
+    target_compile_options(issgpu PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/compat/mingw.h)
+    target_link_libraries(issgpu PUBLIC ws2_32 bcrypt ntdll synchronization winmm pdh gdiplus psapi ole32
+        dbghelp onecore)
+else()
+    target_compile_options(issgpu PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/compat/linux/iss_win_compat.h)
+    target_link_options(issgpu PRIVATE -Wl,--allow-shlib-undefined)
+    target_link_libraries(issgpu PRIVATE PkgConfig::CRYPTO)
+endif()
 
 # Our overlay's ImGui Vulkan backend loads its functions itself (as in this port's own build).
 set_source_files_properties(${OURS_SOURCES} ${PORT}/third_party/imgui/backends/imgui_impl_vulkan.cpp
     PROPERTIES COMPILE_DEFINITIONS "IMGUI_IMPL_VULKAN_NO_PROTOTYPES")
 target_compile_definitions(issgpu PRIVATE TLG_RENDERER_V2
     TLG_FONT_PATH="${PORT}/third_party/fonts/DejaVuSans.ttf")
+
+# Windows: tlg-probe-v2.exe, this port's loader and runtime (as port/gpu/CMakeLists.txt builds
+# tlg-probe.exe) linked with this renderer.
+if (WIN32)
+    enable_language(RC)
+    set(RT ${PORT}/..)
+    file(GLOB V2_RUNTIME CONFIGURE_DEPENDS ${RT}/src/runtime*.c)
+    file(GLOB V2_ATRAC9 CONFIGURE_DEPENDS ${RT}/third_party/LibAtrac9/C/src/*.c)
+    add_library(atrac9_v2 STATIC ${V2_ATRAC9})
+    target_compile_options(atrac9_v2 PRIVATE -w)
+    set_target_properties(atrac9_v2 PROPERTIES C_STANDARD 99 INTERPROCEDURAL_OPTIMIZATION OFF)
+    add_executable(tlg-probe-v2 ${RT}/src/probe.c ${V2_RUNTIME} ${RT}/src/compat_win.c ${RT}/src/cpu_check.c
+        ${RT}/src/vulkan_smoke.c ${RT}/src/isa_rewrite.c ${RT}/src/isa_emulate.c
+        ${RT}/packaging/windows/tlg-probe.rc)
+    set_source_files_properties(${RT}/src/isa_emulate.c PROPERTIES COMPILE_OPTIONS "-mgeneral-regs-only")
+    set_target_properties(tlg-probe-v2 PROPERTIES C_STANDARD 11 C_EXTENSIONS OFF)
+    if (DEFINED ENV{TLG_BUILD_COMMIT})
+        target_compile_definitions(tlg-probe-v2 PRIVATE TLG_BUILD_COMMIT="$ENV{TLG_BUILD_COMMIT}")
+    endif()
+    target_include_directories(tlg-probe-v2 PRIVATE ${RT} ${RT}/src)
+    pkg_check_modules(FREETYPE REQUIRED IMPORTED_TARGET freetype2)
+    target_link_libraries(tlg-probe-v2 PRIVATE issgpu atrac9_v2 PkgConfig::FREETYPE onecore bcrypt ws2_32 -pthread)
+    target_link_options(tlg-probe-v2 PRIVATE -Wl,--disable-high-entropy-va "SHELL:-Xlinker --stack -Xlinker 16777216,16777216")
+endif()
