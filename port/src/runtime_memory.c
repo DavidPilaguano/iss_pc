@@ -834,6 +834,25 @@ int runtime_memory_read_backing(uintptr_t address, void *data, uint64_t size) {
     read_unlock();
     return ok;
 }
+/* tlg: TLG_UNIFIED_MEMORY: the backing view of [address,address+size) when it is direct memory
+ * with contiguous physical pages (one mapping, possibly split by protections), else NULL. The
+ * GPU imports it and reads and writes the guest's bytes in place. */
+void *runtime_memory_backing_view(uintptr_t address, uint64_t size) {
+    read_lock();
+    unsigned char *view=NULL;
+    uint64_t phys=0;
+    int ok=size!=0;
+    for (uintptr_t at=address, end=address+size; at<end && ok;) {
+        size_t i=vma_index(at);
+        if (i==vma_count || vmas[i].start>at || vmas[i].kind!=KIND_DIRECT) { ok=0; break; }
+        uint64_t here=vmas[i].phys+(at-vmas[i].start);
+        if (at==address) phys=here; else if (here!=phys+(at-address)) { ok=0; break; }
+        at=vmas[i].end<end ? vmas[i].end : end;
+    }
+    if (ok) view=backing_base+phys;
+    read_unlock();
+    return view;
+}
 /* Per-thread cache of recently found regions for the GPU's per-draw queries:
  * entries hold for as long as the table generation they were read at. */
 typedef struct { uint64_t generation; uintptr_t start, end; int kind; } CachedRegion;

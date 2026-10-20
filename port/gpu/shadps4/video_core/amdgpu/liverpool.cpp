@@ -275,6 +275,10 @@ void RunEventWriteEop(Vulkan::Rasterizer& rasterizer, const u8* data) {
     const auto eop = *reinterpret_cast<const PM4CmdEventWriteEop*>(data);
     rasterizer.ProcessDownloadImages();
     rasterizer.EagerCopyAtFence();
+    // tlg: TLG_UNIFIED_MEMORY: written when the GPU has finished the work before it.
+    if (rasterizer.DeferUnifiedFence([eop] { SignalEop(eop); })) {
+        return;
+    }
     // Guest memory copies on the copy threads precede the fence the guest sees.
     // TLG_ASYNC_FENCES=1 writes it once they are done instead of waiting for them; measured
     // slower (79 vs 83 FPS): the guest waits on these fences, and later fences stall it more
@@ -411,13 +415,20 @@ void RunEventWriteEos(Vulkan::Rasterizer& rasterizer, const u8* data) {
     rasterizer.WaitHostCopies();
     rasterizer.WaitDeferredSignals();
     rasterizer.ProcessDownloadImages();
-    event_eos.SignalFence([](void* address, u64 value, u32 num_bytes) {
+    const auto write_eos = [](void* address, u64 value, u32 num_bytes) {
         auto* memory = Core::Memory::Instance();
         TlgWriteLog::Note(reinterpret_cast<u64>(address), &value, num_bytes, TlgWriteLog::Fence);
         if (!memory->TryWriteBacking(address, &value, num_bytes)) {
             memcpy(address, &value, num_bytes);
         }
-    });
+    };
+    // tlg: TLG_UNIFIED_MEMORY: written when the GPU has finished the work before it.
+    if (event_eos.command != PM4CmdEventWriteEos::Command::GdsStore &&
+        rasterizer.DeferUnifiedFence(
+            [eos = event_eos, write_eos] { eos.SignalFence(write_eos); })) {
+        return;
+    }
+    event_eos.SignalFence(write_eos);
     if (event_eos.command == PM4CmdEventWriteEos::Command::GdsStore) {
         ASSERT(event_eos.size == 1);
         rasterizer.Finish();
@@ -1426,6 +1437,12 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                                PendingFenceValue(wait_reg_mem->Address<VAddr>(), value) &&
                                wait_reg_mem->TestValue(value)) {
                     break;
+                }
+                // tlg: TLG_UNIFIED_MEMORY: memory the GPU writes in place is read once the GPU
+                // writes recorded before this wait are done.
+                if (rasterizer &&
+                    wait_reg_mem->mem_space.Value() == PM4CmdWaitRegMem::MemSpace::Memory) {
+                    rasterizer->SyncUnifiedRead(wait_reg_mem->Address<VAddr>(), sizeof(u32));
                 }
                 // Else the value may come from a fence that thread has yet to write: let it
                 // catch up before yielding to other queues.
