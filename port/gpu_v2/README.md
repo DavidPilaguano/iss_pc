@@ -1,9 +1,9 @@
-# Castlesea renderer (experimental)
+# renderer v2 (experimental)
 
-**pt-BR** — O renderer do port do Castlesea, rodando no Linux sobre o runtime deste port. A interface
+**pt-BR** — Um renderer alternativo (origem abaixo), rodando no Linux sobre o runtime deste port. A interface
 que o jogador vê (FPS, menu Insert, "Compilando shaders", diálogos de save) é a deste port.
 
-**en-US** — The Castlesea port's renderer, running on Linux on this port's runtime. What the player
+**en-US** — An alternative renderer (origin below), running on Linux on this port's runtime. What the player
 sees (FPS counter, Insert menu, "Compiling shaders", save dialogs) is this port's own.
 
 ## Origin and credit
@@ -28,7 +28,7 @@ All GPL-2.0-or-later (except the two header libraries above).
   (`iss_gpu_install_image`).
 - `gpu/gpu_host.cpp`: the renderer behind `port/gpu/tlggpu.h` (the runtime's GPU interface), with this
   port's overlay, settings and save dialogs (`port/gpu/shim/tlg_*.cpp`, built with
-  `TLG_CASTLESEA_RENDERER`).
+  `TLG_RENDERER_V2`).
 - `gpu/precompile_jobs.inl`: this port's first-start job file (`<user>/cache/CUSA00223-jobs.bin`)
   compiled by this renderer before the game starts. Compute is the renderer's own AOT compile
   (`ISS_AOT_COMPUTE`, needs `ISS_GAME_DIR`).
@@ -42,11 +42,11 @@ All GPL-2.0-or-later (except the two header libraries above).
 ## Build and run
 
 ```sh
-TLG_CASTLESEA=1 bash port/build.sh       # also builds out/gpu_castlesea and out/tlg-probe-cs (clang)
-port/scripts/play_castlesea.sh           # its launcher's defaults (castlesea.env), this port's saves
+TLG_RENDERER_V2=1 bash port/build.sh       # also builds out/gpu_v2 and out/tlg-probe-v2 (clang)
+port/scripts/play_v2.sh           # its launcher's defaults (defaults.env), this port's saves
 ```
 
-`ISS_NATIVE_PASSES=0` is the default in `play_castlesea.sh`: the native passes crash NVIDIA's Linux
+`ISS_NATIVE_PASSES=0` is the default in `play_v2.sh`: the native passes crash NVIDIA's Linux
 driver (595) in the pool thread's secondary command buffers.
 
 Measured (RTX 2060, Linux, 11% save, scripted route): first start compiles the 9148 graphics records

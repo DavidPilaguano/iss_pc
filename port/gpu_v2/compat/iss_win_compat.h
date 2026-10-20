@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Linux: the subset of the Win32 API the Castlesea renderer uses (pc-port/gpu), over POSIX.
+// Linux: the subset of the Win32 API renderer v2 uses (pc-port/gpu), over POSIX.
 // Force-included on Linux; <windows.h> and <tlhelp32.h> resolve to this header.
 #pragma once
 #ifndef _WIN32

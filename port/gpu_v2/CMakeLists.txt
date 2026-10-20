@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-# The Castlesea inFAMOUS renderer on Linux, behind this port's GPU library interface (gpu/tlggpu.h).
+# Renderer v2 on Linux, behind this port's GPU library interface (gpu/tlggpu.h). Origin and credit:
 #   shadps4/  the weshayoub92 shadPS4-perf fork (153a5aa7) with the Castlesea port's local patch
 #             (pc-port/third_party/shadPS4-perf-local.patch), the files this build uses
 #   gpu/      Castlesea/infamous-second-son-pc-port 8e167dc pc-port/gpu, adapted to Linux and to
@@ -144,5 +144,5 @@ target_link_libraries(issgpu PRIVATE Vulkan::Vulkan fmt::fmt Boost::headers tsl:
 # Our overlay's ImGui Vulkan backend loads its functions itself (as in this port's own build).
 set_source_files_properties(${OURS_SOURCES} ${PORT}/third_party/imgui/backends/imgui_impl_vulkan.cpp
     PROPERTIES COMPILE_DEFINITIONS "IMGUI_IMPL_VULKAN_NO_PROTOTYPES")
-target_compile_definitions(issgpu PRIVATE TLG_CASTLESEA_RENDERER
+target_compile_definitions(issgpu PRIVATE TLG_RENDERER_V2
     TLG_FONT_PATH="${PORT}/third_party/fonts/DejaVuSans.ttf")

@@ -88,10 +88,37 @@ def __getattr__(name):  # old code that still reads tlg_run.USER_DIR gets the cu
 
 LOG_DIR = OUT_DIR / 'logs'
 PROBE = OUT_DIR / ('tlg-probe.exe' if os.name == 'nt' else 'tlg-probe')
-# TLG_PROBE (ISS_PROBE): another probe build next to it, e.g. tlg-probe-cs (the Castlesea renderer).
+# TLG_PROBE (ISS_PROBE): another probe build next to it, e.g. tlg-probe-v2 (renderer v2).
 if os.environ.get('TLG_PROBE') or os.environ.get('ISS_PROBE'):
     PROBE = OUT_DIR / Path(os.environ.get('TLG_PROBE') or os.environ['ISS_PROBE']).name
+# Renderer v2 (port/gpu_v2, the launcher's "Renderer" choice): its probe and its own defaults.
+V2_PROBE = OUT_DIR / ('tlg-probe-v2.exe' if os.name == 'nt' else 'tlg-probe-v2')
+V2_DEFAULTS = PORT_DIR / 'gpu_v2' / 'defaults.env'
 KEEP_LOGS = 30
+
+
+def renderer_v2(settings):
+    """True when the player chose renderer v2 and it is built (else this port's renderer)."""
+    item = next(i for i in backports_table.ITEMS if i.key == 'renderer')
+    return backports_table.effective(item, experimental_states(settings)) == '2' and V2_PROBE.is_file()
+
+
+def renderer_v2_env(settings):
+    """Its launcher's defaults (gpu_v2/defaults.env), the game folder its shader index reads, and the
+    native passes as the launcher's switch says (off by default)."""
+    env = {}
+    try:
+        for line in V2_DEFAULTS.read_text(encoding='utf-8').splitlines():
+            key, sep, value = line.strip().partition('=')
+            if sep and key and not key.startswith('#'):
+                env[key] = value
+    except OSError:
+        pass
+    env['ISS_GAME_DIR'] = settings['game_dir']
+    # Native passes: the launcher's "Native passes" switch (off by default: NVIDIA's Linux driver).
+    item = next(i for i in backports_table.ITEMS if i.key == 'native_passes')
+    env['ISS_NATIVE_PASSES'] = '1' if backports_table.effective(item, experimental_states(settings)) == '1' else '0'
+    return env
 
 # Game language: PS4 system language ids (sceSystemServiceParamGetInt LANG). Which of them the
 # player's dump has comes from its PlayGo chunks (game_languages); each choice passes its own id.
@@ -729,6 +756,10 @@ def build_env(settings, extra=None):
     # Experimental fixes (BPnn) and A/B switches the player changed: ISS_<name>=0/1 (the probe
     # copies them to TLG_). Untouched ones add nothing; ISS_/TLG_ set outside the launcher win.
     env.update(backports_table.environment(experimental_states(settings), os.environ))
+    if renderer_v2(settings):
+        for key, value in renderer_v2_env(settings).items():
+            if key not in os.environ:
+                env[key] = value
     if extra:
         env.update(extra)
     return env
@@ -809,7 +840,10 @@ def launch(settings, seconds=0, extra_env=None):
     note = savemanager.backup_before_play(data)   # saves copied aside before every start (and to the extra folder)
     if note:
         print(note, flush=True)
-    cmd = [str(PROBE), str(OUT_DIR / 'boot-linked.bin'), '--app0', settings['game_dir'],
+    probe = V2_PROBE if renderer_v2(settings) else PROBE
+    if probe == V2_PROBE:
+        print('Renderer v2 (port/gpu_v2)', flush=True)
+    cmd = [str(probe), str(OUT_DIR / 'boot-linked.bin'), '--app0', settings['game_dir'],
            '--user', str(data), '--content-profile', str(OUT_DIR / 'content.bin'),
            '--patches', str(OUT_DIR / 'patches.bin'), '--timeout', str(int(seconds))]
     if ISA_TABLE.is_file():

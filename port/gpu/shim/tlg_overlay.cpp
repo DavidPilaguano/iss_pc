@@ -1,5 +1,5 @@
-#ifdef TLG_CASTLESEA_RENDERER
-// The Castlesea renderer build has no perf trace (gpu/shim/tlg_perf_trace.cpp).
+#ifdef TLG_RENDERER_V2
+// Renderer v2 build has no perf trace (gpu/shim/tlg_perf_trace.cpp).
 namespace TlgPerf {
 inline bool Enabled() { return false; }
 inline bool Mark(unsigned) { return false; }
@@ -33,7 +33,7 @@ inline bool Mark(unsigned) { return false; }
 extern TlgActorSlot tlg_actor_slots[2];
 extern "C" void runtime_restart(void); // src/probe.c: starts run.py again, ends this process
 #include "common/elf_info.h"
-#ifndef TLG_CASTLESEA_RENDERER
+#ifndef TLG_RENDERER_V2
 #include "common/backports.h"
 #include "shader_recompiler/recompiler_toggles.h"
 #endif
@@ -42,7 +42,7 @@ extern "C" void runtime_restart(void); // src/probe.c: starts run.py again, ends
 #include "imgui_impl_vulkan.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
-#ifndef TLG_CASTLESEA_RENDERER
+#ifndef TLG_RENDERER_V2
 #include "video_core/renderer_vulkan/vk_frame_capture.h"
 #endif
 
@@ -73,10 +73,10 @@ extern "C" const unsigned char tlg_font_ttf_end[];
 
 namespace TlgOverlay {
 namespace {
-// This overlay's own ImGui context: the Castlesea presenter composes the game image with ImGui
+// This overlay's own ImGui context: renderer v2's presenter composes the game image with ImGui
 // in its own context, so each entry point here makes this one current and restores the other.
 ImGuiContext* overlay_context = nullptr;
-#ifdef TLG_CASTLESEA_RENDERER
+#ifdef TLG_RENDERER_V2
 struct ContextScope {
     ImGuiContext* previous = ImGui::GetCurrentContext();
     ContextScope() {
@@ -514,12 +514,12 @@ void PerformanceTab() {
 // are only recorded in tlg.ini (bpNN=0/1, wqm=0/1, ...) and apply on the next start, when the
 // launcher turns the keys into TLG_BPnn / TLG_<NAME>. The table is iterated, so a reordered
 // backports.h still lists every entry.
-#ifdef TLG_CASTLESEA_RENDERER
-// The Castlesea renderer has its own fixes and switches (ISS_* variables): none of this port's.
+#ifdef TLG_RENDERER_V2
+// Renderer v2 has its own fixes and switches (ISS_* variables): none of this port's.
 void FixesSection() {
     ImGui::SeparatorText(TL("Fixes", "Correções"));
-    ImGui::TextDisabled("%s", TL("This build uses the Castlesea renderer: its own fixes apply.",
-                                 "Esta versão usa o renderer do Castlesea: valem as correções dele."));
+    ImGui::TextDisabled("%s", TL("This build uses renderer v2: its own fixes apply.",
+                                 "Esta versão usa o renderer v2: valem as correções dele."));
 }
 #else
 void FixesSection() {
@@ -1604,7 +1604,7 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
     ImGuiContext* const previous_context = ImGui::GetCurrentContext();
     overlay_context = ImGui::CreateContext();
     ImGui::SetCurrentContext(overlay_context);
-#ifdef TLG_CASTLESEA_RENDERER
+#ifdef TLG_RENDERER_V2
     // The renderer's own context stays current for its presenter.
     struct Restore { ImGuiContext* c; ~Restore() { ImGui::SetCurrentContext(c); } } restore{previous_context};
 #else
@@ -1870,7 +1870,7 @@ bool HandleEvent(const SDL_Event& event) {
             return env && *env == '1';
         }();
         if (down && !event.key.repeat && capture_key && event.key.key == SDLK_F11) {
-#ifndef TLG_CASTLESEA_RENDERER
+#ifndef TLG_RENDERER_V2
             Vulkan::FrameCapture::Request();
 #endif
             return true;

@@ -853,7 +853,7 @@ void *runtime_memory_backing_view(uintptr_t address, uint64_t size) {
     read_unlock();
     return view;
 }
-/* tlg: the Castlesea renderer's host interface (gpu_castlesea): direct mappings with their backing
+/* tlg: renderer v2's host interface (gpu_v2): direct mappings with their backing
  * view, the mapping table's generation, and a shared hold on the table while it publishes. */
 void runtime_memory_visit(void (*visit)(uint64_t address, uint64_t size, uint8_t *backing)) {
     read_lock();

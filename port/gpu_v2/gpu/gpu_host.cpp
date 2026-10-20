@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Linux: the Castlesea renderer behind this port's GPU library interface (gpu/tlggpu.h). The
+// Linux: renderer v2 behind this port's GPU library interface (gpu/tlggpu.h). The
 // runtime (src/runtime_*.c) calls the tlggpu_* functions; they drive the renderer through its own
 // host interface (iss_gpu.h), whose callbacks are the runtime's memory functions.
 #include <atomic>
@@ -109,7 +109,11 @@ extern "C" int tlggpu_init(const TlgGpuConfig* config) {
     callbacks.mapping_lock_shared = runtime_memory_lock_shared;
     callbacks.mapping_unlock_shared = runtime_memory_unlock_shared;
     TlgSettings::Load(); // tlg.ini: the overlay, the menu and the input settings
-    std::printf("GPU: Castlesea renderer (gpu_castlesea)\n");
+    // The launcher's choices (backports_table.py): TLG_RENDERER=2 picked this renderer, and
+    // TLG_NATIVE_PASSES sets ISS_NATIVE_PASSES (off by default: NVIDIA's Linux driver).
+    const char* native = std::getenv("ISS_NATIVE_PASSES");
+    std::printf("GPU: native passes %s (TLG_NATIVE_PASSES)\n", native && native[0] == '1' ? "on" : "off");
+    std::printf("GPU: renderer v2 (gpu_v2)\n");
     return iss_gpu_initialize(&callbacks) == 0 ? 0 : -1;
 }
 
