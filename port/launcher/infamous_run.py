@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 
+import addons
 import backports_table
 import logtail
 import shader_cache
@@ -698,6 +699,9 @@ def build_env(settings, extra=None):
     if settings.get('ui_language', 'auto') != 'auto':
         env['ISS_UI_LANG'] = settings['ui_language']
     env['ISS_CONFIG'] = str(user_dir() / 'tlg.ini')
+    dlc = addons.labels(user_dir() / 'dlc')
+    if dlc:
+        env.setdefault('ISS_ADDCONT_LABELS', ','.join(dlc))
     # Window name, app id (matches infamous-pc.desktop for Alt+Tab and the dock) and icon.
     env.setdefault('ISS_APP_NAME', 'inFAMOUS Second Son')
     env.setdefault('ISS_APP_ID', 'infamous-pc')
