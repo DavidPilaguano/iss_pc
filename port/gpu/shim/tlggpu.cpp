@@ -425,6 +425,10 @@ extern "C" void tlggpu_frame_counters(TlgGpuFrameCounters* out) {
     out->faults_handled = TlgFreeze::faults_handled.load(std::memory_order_relaxed);
 }
 
+extern "C" uint64_t tlggpu_total_draws(void) {
+    return TlgStats::draws.load(std::memory_order_relaxed);
+}
+
 extern "C" unsigned tlggpu_symbol_count(void) {
     return unsigned(g_symbols.size());
 }
