@@ -48,7 +48,6 @@ namespace iss { extern std::atomic<unsigned> g_preload_entries, g_preload_total;
 #include "common/path_util.h"
 #include "common/perf_stats.h"
 #include "common/rdtsc.h"
-#include "common/ntapi.h"
 #include "common/signal_context.h"
 #include "core/libraries/libs.h"
 #include "core/libraries/kernel/equeue.h"
@@ -73,8 +72,6 @@ extern "C" void iss_gpu_install_image(uint64_t image_base);
 Frontend::WindowSDL *g_window=nullptr;
 namespace Libraries::GnmDriver {void RegisterLib(Core::Loader::SymbolsResolver*);}
 namespace Libraries::VideoOut {void RegisterLib(Core::Loader::SymbolsResolver*);}
-namespace Libraries::Ajm {void RegisterLib(Core::Loader::SymbolsResolver*);}
-namespace Libraries::Videodec {void RegisterLib(Core::Loader::SymbolsResolver*);}
 namespace Libraries::Kernel {void RegisterEventQueue(Core::Loader::SymbolsResolver*);}
 namespace {
 IssGpuCallbacks host{};
@@ -410,9 +407,6 @@ extern "C" int iss_gpu_initialize(const IssGpuCallbacks *callbacks){
     // Linux (this port's loader): the image is known later, iss_gpu_install_image.
     if(host.image_base)iss_gpu_install_image(host.image_base);
     Core::Emulator::Configure();
-#ifdef _WIN32
-    Common::NtApi::Initialize();
-#endif
     for(int i=0;i<=static_cast<int>(Common::FS::PathType::LicensesDir);++i){
         auto type=static_cast<Common::FS::PathType>(i);Common::FS::SetUserPath(type,std::filesystem::path(host.user_dir)/("gpu-"+std::to_string(i)));}
     Common::FS::SetUserPath(Common::FS::PathType::UserDir,host.user_dir);
@@ -561,10 +555,6 @@ extern "C" int iss_gpu_initialize(const IssGpuCallbacks *callbacks){
                         TlgOverlay::SetLoading(false,0,0);
                         iss::g_preload_phase.store(3,std::memory_order_relaxed);
                     }
-#ifdef _WIN32
-                    Libraries::Ajm::RegisterLib(&resolver);
-                    Libraries::Videodec::RegisterLib(&resolver);
-#endif
                     init_state.store(1,std::memory_order_release);
                 }catch(const std::exception& e){init_error=e.what();init_state.store(-1,std::memory_order_release);}
             });
