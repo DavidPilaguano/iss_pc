@@ -1,3 +1,4 @@
+#include <atomic>
 #include "deep_profile.h"
 #include "gpu_blackbox.h"
 #include "pipeline_library.h"

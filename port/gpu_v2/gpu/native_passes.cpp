@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // ISS_NATIVE_PASSES: the engine side (native_passes.h). Runs on the engine's threads, except
 // Claim/Finish/PublishSpanStart (command processor) and BeforeSubmit (the submitting thread).
+#include <atomic>
 #include "native_passes.h"
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <boost/container/small_vector.hpp>
 
 #include "shader_recompiler/ir/basic_block.h"

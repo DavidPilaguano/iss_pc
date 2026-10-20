@@ -16,6 +16,7 @@
 // - Deduping an SCC can allow deduplication in other SCC groups so also queue user SCC groups that
 //   might be affected
 
+#include <algorithm>
 #include <limits>
 #include <unordered_map>
 #include <vector>

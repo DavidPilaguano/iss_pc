@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // ISS_NATIVE_SHADOW: the engine side (native_shadow.h). Runs on the engine's threads.
+#include <atomic>
 #include "native_shadow.h"
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX

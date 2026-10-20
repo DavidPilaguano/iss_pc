@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include <atomic>
 #include "deep_profile.h"
 #include "core/debug_state.h"
 #include <cstdio>

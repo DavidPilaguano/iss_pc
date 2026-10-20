@@ -1,3 +1,4 @@
+#include <atomic>
 #include "deep_profile.h"
 #include "repeat_census.h"
 #include "compute_phase.h"

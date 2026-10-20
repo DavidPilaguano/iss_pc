@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include <atomic>
 #include "runtime_timeline.h"
 #include "timeline_buffer.h"
 #include "common/perf_stats.h"
