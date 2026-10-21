@@ -133,7 +133,7 @@ void SymbolsResolver::AddSymbol(const char *nid,const char *library,const char *
 }
 namespace Core {
 class Emulator {
-public:static void Configure(){auto& e=Common::ElfInfo::Instance();e.initialized=true;e.game_serial=host.serial;e.title=host.title;e.sdk_ver=host.sdk_version;e.psf_attributes.raw=host.psf_attributes;e.app_ver="01.00";}
+public:static void Configure(){auto& e=Common::ElfInfo::Instance();e.initialized=true;e.game_serial=host.serial;e.title=host.title;e.sdk_ver=host.sdk_version;e.psf_attributes.raw=host.psf_attributes;e.app_ver="01.07";}
 };
 void AddressSpace::Register(VAddr address,u64 size,u8 *backing){
     if(!size)return;
@@ -390,6 +390,8 @@ extern "C" void iss_gpu_install_image(uint64_t image_base){
         iss::native_shadow::Install(host.image_base,reinterpret_cast<const unsigned char*>(host.image_base+0x43D590));
     iss::native_gbuffer::InstallCensus(host.image_base);
     iss::native_gbuffer::Install(host.image_base);
+    { const auto* c = reinterpret_cast<const unsigned char*>(host.image_base + 0x3f3eff);
+      std::fprintf(stderr, "V2_EBOOT us_1_07=%d (renderer v2 sites target CUSA00223 US 1.07)\n", c[0] == 0x8b && c[1] == 0x40 && c[2] == 0x04 && c[3] == 0x49); }
     iss::pause_guard::Install(host.image_base);
     iss::native_passes::Install(host.image_base);
     if(const char *p=std::getenv("ISS_FEEDBACK_PAGE_READBACK");p&&p[0]=='1'){

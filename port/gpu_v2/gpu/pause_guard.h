@@ -18,6 +18,7 @@
 namespace iss::pause_guard {
 
 inline constexpr std::uint64_t CounterOffset = 0x1D1F7FC;
+inline constexpr std::uint64_t CounterSite = 0x27DB27; // lea r14, [rip+counter]
 inline const volatile std::uint32_t* counter{};
 inline std::int64_t hold_ms = 3000;
 inline std::atomic<std::int64_t> last_paused_ms{};
@@ -35,6 +36,18 @@ inline void Install(std::uint64_t image_base) {
         return;
     }
     if (const char* v = std::getenv("ISS_PAUSE_GUARD_HOLD_MS")) hold_ms = std::strtoll(v, nullptr, 10);
+    // The counter is only trusted when the code that increments it (sub_27DB10 of the US
+    // CUSA00223 1.07 eboot: lea r14,[rip+disp32] at +0x27DB27) points at it. Another eboot
+    // (base 1.00, other region) would read garbage, keep the guard engaged forever and turn
+    // every native path off, so the guard stays off there instead.
+    const auto* site = reinterpret_cast<const unsigned char*>(image_base + CounterSite);
+    std::int32_t disp{};
+    __builtin_memcpy(&disp, site + 3, 4);
+    if (site[0] != 0x4c || site[1] != 0x8d || site[2] != 0x35 ||
+        CounterSite + 7 + static_cast<std::int64_t>(disp) != CounterOffset) {
+        std::fprintf(stderr, "V2_SITE pause_counter not found (eboot is not US 1.07): pause guard off\n");
+        return;
+    }
     counter = reinterpret_cast<const volatile std::uint32_t*>(image_base + CounterOffset);
     std::fprintf(stderr, "PAUSE_GUARD on: counter eboot+0x%llx = %u, hold %lld ms\n",
                  (unsigned long long)CounterOffset, *counter, (long long)hold_ms);

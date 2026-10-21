@@ -58,3 +58,8 @@ Windows: built with MSYS2 CLANG64 as a static library linked into `out/tlg-probe
 Windows machine yet.
 
 Not yet: mouse capture, the renderer's ImGui still composes the game image, native passes on NVIDIA.
+
+## Versões suportadas / Supported versions
+
+- **pt-BR:** os endereços do renderer v2 (ganchos, contador de pausa, vtables) são do eboot **CUSA00223 (EUA) com o update 1.07** (sha256 `45b7cc97…07ee5`). O log mostra `V2_EBOOT us_1_07=1`. Com outro eboot (base 1.00, outra região) o guarda de pausa se desliga (`V2_SITE pause_counter not found`) e os ganchos recusam pelo prólogo, em vez de ler lixo.
+- **en-US:** renderer v2 addresses (hooks, pause counter, vtables) belong to the **CUSA00223 (US) update 1.07** eboot (sha256 `45b7cc97…07ee5`). The log prints `V2_EBOOT us_1_07=1`. With another eboot (base 1.00, other region) the pause guard turns off (`V2_SITE pause_counter not found`) and the hooks refuse on their prologue check instead of reading garbage.
