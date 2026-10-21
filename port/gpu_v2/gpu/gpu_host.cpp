@@ -234,10 +234,7 @@ extern "C" void tlggpu_input_settings(TlgGpuInputSettings* out) {
 extern "C" void tlggpu_mouse_pad_hud(int active, float x, float y, int touching, int clicking) {
     TlgOverlay::SetMousePad(active != 0, x, y, touching != 0, clicking != 0);
 }
-// The mouse (this port's window.cpp captures it): not yet on this window.
-extern "C" void tlggpu_mouse_take(TlgGpuMouse* out) {
-    *out = {};
-}
+// tlggpu_mouse_take: window.cpp (the game's mouse, as in this port's renderer).
 
 // The Windows save dialog (save_dialog_ui.cpp, XInput) is left out: the window and the
 // presenter find no dialog up.

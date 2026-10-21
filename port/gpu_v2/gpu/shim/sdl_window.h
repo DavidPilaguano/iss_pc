@@ -8,6 +8,7 @@
 #include "common/types.h"
 
 struct SDL_Window;
+union SDL_Event;
 
 namespace Frontend {
 
@@ -47,9 +48,17 @@ private:
     int text_state{};
     std::string text, text_prompt, base_title;
     void UpdateTextTitle();
-    void UpdateCursor();
-    u64 last_mouse_motion_ms{}; ///< SDL_GetTicks of the last mouse motion (UpdateCursor)
-    bool cursor_hidden{};
+    int display_mode = -1; ///< applied TlgSettings display mode (window thread)
+    void ApplyDisplayMode(int mode);
+    // Mouse for the game (tlggpu_mouse_take): relative mode while focused, the menu closed and
+    // not released with Esc. Window thread only.
+    bool focused{}, mouse_captured{}, mouse_released{};
+    u32 mouse_swallow{}; ///< buttons whose release belongs to the click that took the mouse
+    float wheel_x{}, wheel_y{};
+    u64 mouse_test_start{}, mouse_test_last{}; ///< TLG_MOUSE_TEST: synthetic motion and clicks
+    bool HandleMouse(const SDL_Event& event);
+    void UpdateMouseCapture();
+    void MouseTest();
     SDL_Window* window{};
     WindowSystemInfo window_info{};
 };
