@@ -562,7 +562,7 @@ void WindowSDL::DrawLoading(int phase,unsigned done,unsigned total){
             if(right>left)g.FillRectangle(&fill,left,y,right-left,bar_h*0.35f);
             y+=bar_h*0.35f+base*0.8f;
         }
-        g.DrawString(note,-1,&font,RectF(x,y,bw,base*4.0f),&dim_text);
+        g.DrawString(note,-1,&font,RectF(x,y,bw,base*4.0f),nullptr,&dim_text);
     }
     HDC dc=GetDC(hwnd);
     if(dc){
