@@ -296,6 +296,8 @@
   "upd_err_offline": {"en": "Could not reach GitHub. Check your internet connection and try again.", "pt": "Não consegui falar com o GitHub. Confira sua conexão com a internet e tente de novo."},
   "upd_err_timeout": {"en": "GitHub took too long to answer (10 s). Try again in a moment.", "pt": "O GitHub demorou demais para responder (10 s). Tente de novo daqui a pouco."},
   "upd_err_limit": {"en": "GitHub is limiting requests from your network right now. Try again later.", "pt": "O GitHub está limitando os pedidos da sua rede agora. Tente de novo mais tarde."},
+  "upd_err_limit_until": {"en": "GitHub is limiting requests from your network right now (60 an hour without a login, shared by every program and device on it). Try again after {time}.", "pt": "O GitHub está limitando os pedidos da sua rede agora (60 por hora sem login, divididos entre todos os programas e aparelhos dela). Tente de novo depois das {time}."},
+  "upd_cached": {"en": "The release shown is the one seen on {checked}.", "pt": "A release mostrada é a vista em {checked}."},
   "upd_err_http": {"en": "GitHub answered with an error ({detail}). Try again later.", "pt": "O GitHub respondeu com erro ({detail}). Tente de novo mais tarde."},
   "upd_err_bad": {"en": "GitHub's answer was not what I expected. Try again later.", "pt": "A resposta do GitHub não veio como eu esperava. Tente de novo mais tarde."},
   "upd_err_none": {"en": "No release is published yet.", "pt": "Ainda não há nenhuma release publicada."},
