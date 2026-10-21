@@ -824,6 +824,22 @@ def detach_options():
     return {'start_new_session': True}
 
 
+def raise_open_file_limit():
+    """Linux: lifts the open-file limit to its hard maximum; the game inherits it. A desktop session
+    starts programs with a soft limit of 1024 (systemd DefaultLimitNOFILESoft), and renderer v2
+    goes past it while it preloads the pipelines: SDL then fails to create the window's buffer
+    file ("Too many open files") and the game crashes before its window opens."""
+    if os.name == 'nt':
+        return
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if hard != resource.RLIM_INFINITY and soft < hard:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+    except (ImportError, OSError, ValueError):
+        pass
+
+
 def launch(settings, seconds=0, extra_env=None):
     """Writes the in-game settings, starts the game; returns (process, log path).
     The game writes stdout and stderr straight into the log file (no pipe, nobody reads it while
@@ -848,6 +864,7 @@ def launch(settings, seconds=0, extra_env=None):
            '--patches', str(OUT_DIR / 'patches.bin'), '--timeout', str(int(seconds))]
     if ISA_TABLE.is_file():
         cmd += ['--isa-rewrite', str(ISA_TABLE)]
+    raise_open_file_limit()
     with open(log, 'wb') as out:   # the child keeps its own copy of the descriptor
         process = subprocess.Popen(cmd, cwd=str(data), env=build_env(settings, extra_env),
                                    stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
