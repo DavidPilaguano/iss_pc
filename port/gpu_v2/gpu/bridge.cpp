@@ -636,7 +636,9 @@ uint64_t IssImageBase() { return host.image_base; }
 void IssPinCommandProcessor() {
     const char* value = std::getenv("ISS_CP_CPU");
     if (!value || !*value) return;
-    const long wanted = std::strtol(value, nullptr, 10);
+    long wanted = std::strtol(value, nullptr, 10);
+    const long count = sysconf(_SC_NPROCESSORS_ONLN);
+    if (count > 0 && wanted >= count) wanted = count - 1; // fewer logical processors than asked
     cpu_set_t set;
     CPU_ZERO(&set);
     CPU_SET(static_cast<int>(wanted), &set);
@@ -671,6 +673,14 @@ void IssPinCommandProcessor() {
     const Set* mine = nullptr;
     for (const auto& set : sets) {
         if (set.group == 0 && set.logical == wanted) mine = &set;
+    }
+    // A CPU with fewer logical processors than asked (ISS_CP_CPU=14 on a 6-core/12-thread CPU):
+    // the last one of group 0, so the command processor still gets a core of its own.
+    if (!mine) {
+        for (const auto& set : sets) {
+            if (set.group == 0 && (!mine || set.logical > mine->logical)) mine = &set;
+        }
+        if (mine) std::fprintf(stderr, "PORT_TUNING cp_cpu %ld not found: using %u\n", wanted, unsigned(mine->logical));
     }
     if (!mine) {
         std::fprintf(stderr, "PORT_TUNING cp_cpu failed: logical processor %ld not found\n", wanted);
