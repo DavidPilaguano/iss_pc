@@ -273,7 +273,8 @@ DEFAULT_SETTINGS = {
     'write_merge': True,     # ISS_WRITE_MERGE: game memcpy/memset into GPU memory without a GPU wait
     'deferred_readback': True,  # ISS_DEFERRED_READBACK: the game thread waits for its own GPU reads
     'precompile_shaders': True,  # launcher: make the shader jobs list before the game starts (precompile.py)
-    'close_on_play': True,  # launcher: close about 2 s after the game starts (an open launcher cost ~30% FPS in CPU-bound scenes)
+    'close_on_play': True,
+    'reopen_launcher': True,  # launcher closed on play: opens again when the game exits  # launcher: close about 2 s after the game starts (an open launcher cost ~30% FPS in CPU-bound scenes)
     'gpu_readbacks': '2',    # 2 precise: GPU particles (smoke to drain) need it; 0 fast skips them
 }
 
@@ -822,6 +823,46 @@ def detach_options():
     if os.name == 'nt':
         return {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS}
     return {'start_new_session': True}
+
+
+def wait_for_exit(pid):
+    """Blocks until process pid ends (no window, no Qt: a closed launcher's watcher)."""
+    if os.name == 'nt':
+        import ctypes
+        kernel = ctypes.windll.kernel32
+        handle = kernel.OpenProcess(0x00100000, False, int(pid))   # SYNCHRONIZE
+        if handle:
+            kernel.WaitForSingleObject(handle, 0xFFFFFFFF)
+            kernel.CloseHandle(handle)
+        return
+    while True:
+        try:
+            os.kill(int(pid), 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            pass
+        try:   # a zombie (exited, not yet reaped) counts as ended
+            if Path(f'/proc/{int(pid)}/stat').read_text().split(') ', 1)[1][:1] == 'Z':
+                return
+        except (OSError, IndexError):
+            pass
+        time.sleep(1.0)
+
+
+def reopen_after(pid):
+    """Starts a detached watcher that opens the launcher again once the game (pid) exits."""
+    if FROZEN:
+        cmd = [sys.executable, '--reopen-after', str(pid)]
+    else:
+        cmd = [sys.executable, str(Path(__file__).resolve().parent / 'infamous_launcher_qt.py'),
+               '--reopen-after', str(pid)]
+    try:
+        subprocess.Popen(cmd, env=desktop_env(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, **detach_options())
+        return True
+    except OSError:
+        return False
 
 
 def raise_open_file_limit():
