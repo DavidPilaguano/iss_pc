@@ -586,9 +586,9 @@ extern "C" int iss_gpu_initialize(const IssGpuCallbacks *callbacks){
                             phase==5?"Indexing the game's shaders (first run only)  "+std::to_string(entries)+" / "+std::to_string(total):
                             phase==6?"Compiling shaders (first run only)  "+std::to_string(entries)+" / "+std::to_string(total):
                             "Finishing shaders...";
-                        const double fraction=(phase==1||phase==4||phase==5||phase==6)&&total?double((std::min)(entries,total))/total:
-                                              phase>=2?1.0:-1.0;
-                        g_window->DrawLoading(fraction,status);
+                        // Phase 6 is this port's own "Compiling shaders" screen (the overlay,
+                        // presented by the renderer): the window's screen stays off then.
+                        if(phase!=6)g_window->DrawLoading(phase,entries,phase==1||phase==4||phase==5?total:0);
                         std::string title=std::string(host.title)+" - "+status;
                         if(title!=shown){SDL_SetWindowTitle(g_window->GetSDLWindow(),title.c_str());shown=title;}
                     }

@@ -32,9 +32,9 @@ public:
     bool IsOpen() const { return is_open.load(std::memory_order_relaxed); }
     /// Processes pending window events. Returns false once the user closed the window.
     bool PollEvents();
-    /// The loading screen (window thread, before the game's first frame): the game's art, the
-    /// status and a progress bar; fraction < 0 draws a sweeping bar.
-    void DrawLoading(double fraction, const std::string& status);
+    /// The loading screen (window thread, before the renderer presents): the step (bridge.cpp
+    /// g_preload_phase), its count and total (0 = unknown length), in this port's look.
+    void DrawLoading(int phase, unsigned done, unsigned total);
     /// Keyboard text entry for the system IME dialog; typed text shows in the title bar.
     void BeginTextInput(const std::string& initial, const std::string& prompt);
     /// 0 while typing, 1 confirmed (Enter), 2 cancelled (Escape); text is UTF-8.

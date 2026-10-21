@@ -427,7 +427,7 @@ bool WindowSDL::PollEvents() {
 // window until the game's first frame replaces it (ISS_LOADING_SCREEN=0 off).
 #ifndef _WIN32
 // Linux: the window title shows the loading status (bridge.cpp); no art is drawn.
-void WindowSDL::DrawLoading(double,const std::string&){}
+void WindowSDL::DrawLoading(int,unsigned,unsigned){}
 #else
 namespace {
 std::wstring Widen(const std::string& text){
@@ -447,7 +447,21 @@ struct LoadingArt{
 LoadingArt& Art(){static LoadingArt art;return art;}
 }
 
-void WindowSDL::DrawLoading(double fraction,const std::string& status){
+namespace {
+// The loading screen's words, pt-BR or en-US as the launcher's language (TLG_UI_LANG).
+bool Portuguese(){
+    static const bool pt=[]{const char* l=std::getenv("TLG_UI_LANG");return !(l&&!std::strncmp(l,"en",2));}();
+    return pt;
+}
+const wchar_t* L2(const wchar_t* en,const wchar_t* pt){return Portuguese()?pt:en;}
+}
+
+// Before the renderer can present (v2's first-run steps: indexing and compiling the game's compute
+// shaders, then reading the cache), drawn with GDI+ straight on the window in the look of this
+// port's "Compiling shaders" screen (tlg_overlay.cpp LoadingScreen): the game's art dimmed behind a
+// centred block with the step, its bar and count, the time left and a note. Phase 6 (graphics
+// precompile) is the overlay's own screen, so this one is not drawn then (ISS_LOADING_SCREEN=0 off).
+void WindowSDL::DrawLoading(int phase,unsigned done,unsigned total){
     auto& art=Art();
     if(!art.tried){
         art.tried=true;
@@ -472,59 +486,83 @@ void WindowSDL::DrawLoading(double fraction,const std::string& status){
     const int w=client.right-client.left,h=client.bottom-client.top;
     if(w<=0||h<=0)return;
     using namespace Gdiplus;
-    // The art scaled to cover the window, kept until the size changes.
+    // The art scaled to cover the window and dimmed, kept until the size changes.
     if(!art.scaled||art.scaled_w!=w||art.scaled_h!=h){
         art.scaled=std::make_unique<Bitmap>(w,h,PixelFormat32bppPARGB);
         Graphics g(art.scaled.get());
-        g.Clear(Color(255,8,8,10));
+        g.Clear(Color(255,11,14,20));
         if(art.image){
             g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
             const double iw=art.image->GetWidth(),ih=art.image->GetHeight();
             const double scale=std::max(w/iw,h/ih);
             const REAL dw=REAL(iw*scale),dh=REAL(ih*scale);
             g.DrawImage(art.image.get(),RectF((w-dw)/2,(h-dh)/2,dw,dh));
+            SolidBrush dim(Color(200,11,14,20));
+            g.FillRectangle(&dim,0,0,w,h);
         }
-        // A shade at the bottom for the bar and the text.
-        const REAL shade_h=REAL(h)*0.30f;
-        LinearGradientBrush shade(PointF(0,REAL(h)-shade_h),PointF(0,REAL(h)),Color(0,0,0,0),Color(220,0,0,0));
-        g.FillRectangle(&shade,REAL(0),REAL(h)-shade_h,REAL(w),shade_h);
         art.scaled_w=w;art.scaled_h=h;
     }
+    // The time left: per step, from when its count started to move.
+    static int eta_phase=-1;
+    static ULONGLONG eta_start=0;
+    static unsigned eta_from=0;
+    if(phase!=eta_phase){eta_phase=phase;eta_start=GetTickCount64();eta_from=done;}
+    const wchar_t* title=
+        phase==5?L2(L"Indexing the game's shaders...",L"Indexando os shaders do jogo..."):
+        phase==4?L2(L"Compiling compute shaders...",L"Compilando shaders de compute..."):
+        phase==1?L2(L"Loading shader cache...",L"Carregando o cache de shaders..."):
+        phase==0?L2(L"Starting...",L"Iniciando..."):
+                 L2(L"Preparing graphics...",L"Preparando os gráficos...");
+    const bool first_run=phase==4||phase==5;
+    const wchar_t* note=first_run
+        ?L2(L"Only on the first start on this computer and after updates: then the game runs without compiling shaders.",
+            L"Só na primeira abertura neste computador e depois de atualizações: depois o jogo roda sem compilar shaders.")
+        :L2(L"The first start after an update takes longer.",L"A primeira abertura depois de uma atualização demora mais.");
     Bitmap frame(w,h,PixelFormat32bppPARGB);
     {
         Graphics g(&frame);
         g.DrawImage(art.scaled.get(),0,0,w,h);
         g.SetSmoothingMode(SmoothingModeAntiAlias);
         g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
-        const REAL margin=REAL(w)*0.06f;
-        const REAL bar_w=REAL(w)-2*margin,bar_h=std::max<REAL>(6.f,REAL(h)*0.010f);
-        const REAL bar_y=REAL(h)*0.90f;
-        SolidBrush track(Color(90,255,255,255));
-        g.FillRectangle(&track,margin,bar_y,bar_w,bar_h);
-        // The logo's palette: yellow to orange along the bar.
-        LinearGradientBrush fill(PointF(margin,0),PointF(margin+bar_w,0),Color(255,255,196,46),Color(255,247,120,22));
-        if(fraction>=0){
-            const REAL done=bar_w*REAL(std::clamp(fraction,0.0,1.0));
-            if(done>0)g.FillRectangle(&fill,margin,bar_y,done,bar_h);
-        }else{
-            // Unknown length: a segment sweeping across.
-            const double t=double(GetTickCount64()%1600)/1600.0;
-            const REAL seg=bar_w*0.25f;
-            const REAL x=margin+REAL(t)*(bar_w+seg)-seg;
-            const REAL left=std::max(margin,x),right=std::min(margin+bar_w,x+seg);
-            if(right>left)g.FillRectangle(&fill,left,bar_y,right-left,bar_h);
-        }
-        const REAL text_size=std::max<REAL>(13.f,REAL(h)*0.026f);
+        // The overlay's block: 40% of the width, centred; ImGui's dark style colours.
+        const REAL bw=REAL(w)*0.40f,x=(REAL(w)-bw)/2;
+        const REAL base=std::max<REAL>(13.f,REAL(h)*0.018f);
         FontFamily family(L"Segoe UI");
-        Font font(&family,text_size,FontStyleRegular,UnitPixel);
-        SolidBrush text(Color(235,255,255,255));
-        const std::wstring status_w=Widen(status);
-        g.DrawString(status_w.c_str(),-1,&font,PointF(margin,bar_y-text_size*1.7f),&text);
-        if(fraction>=0){
-            wchar_t percent[16];swprintf(percent,16,L"%d%%",int(std::clamp(fraction,0.0,1.0)*100+0.5));
-            StringFormat right;right.SetAlignment(StringAlignmentFar);
-            g.DrawString(percent,-1,&font,RectF(margin,bar_y-text_size*1.7f,bar_w,text_size*1.5f),&right,&text);
+        Font big(&family,base*1.6f,FontStyleRegular,UnitPixel),font(&family,base,FontStyleRegular,UnitPixel);
+        SolidBrush text(Color(255,255,255,255)),dim_text(Color(255,128,128,128));
+        const REAL bar_h=base*1.55f;
+        REAL y=REAL(h)*0.5f-base*4.0f;
+        g.DrawString(title,-1,&big,PointF(x,y),&text);
+        y+=base*2.4f;
+        if(total){
+            SolidBrush frame_bg(Color(138,41,74,122)),fill(Color(255,230,179,0));
+            g.FillRectangle(&frame_bg,x,y,bw,bar_h);
+            const REAL part=bw*REAL(std::min(done,total))/REAL(total);
+            if(part>0)g.FillRectangle(&fill,x,y,part,bar_h);
+            wchar_t count[64];
+            swprintf(count,64,L"%u / %u (%u%%)",done,total,unsigned(static_cast<unsigned long long>(std::min(done,total))*100/total));
+            StringFormat centre;centre.SetAlignment(StringAlignmentCenter);centre.SetLineAlignment(StringAlignmentCenter);
+            g.DrawString(count,-1,&font,RectF(x,y,bw,bar_h),&centre,&text);
+            y+=bar_h+base*0.6f;
+            const ULONGLONG ms=GetTickCount64()-eta_start;
+            if(first_run&&done>eta_from&&done<total&&ms>3000){
+                const unsigned left=unsigned(double(ms)/1000.0*double(total-done)/double(done-eta_from))+1;
+                wchar_t eta[64];
+                swprintf(eta,64,L2(L"About %u:%02u left",L"Faltam cerca de %u:%02u"),left/60,left%60);
+                g.DrawString(eta,-1,&font,PointF(x,y),&text);
+                y+=base*1.5f;
+            }
+        }else{
+            // Unknown length: a segment sweeping across the bar.
+            SolidBrush frame_bg(Color(138,41,74,122)),fill(Color(255,230,179,0));
+            g.FillRectangle(&frame_bg,x,y,bw,bar_h*0.35f);
+            const double t=double(GetTickCount64()%1600)/1600.0;
+            const REAL seg=bw*0.25f,sx=x+REAL(t)*(bw+seg)-seg;
+            const REAL left=std::max(x,sx),right=std::min(x+bw,sx+seg);
+            if(right>left)g.FillRectangle(&fill,left,y,right-left,bar_h*0.35f);
+            y+=bar_h*0.35f+base*0.8f;
         }
+        g.DrawString(note,-1,&font,RectF(x,y,bw,base*4.0f),&dim_text);
     }
     HDC dc=GetDC(hwnd);
     if(dc){
