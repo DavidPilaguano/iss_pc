@@ -105,7 +105,7 @@ def renderer_v2(settings):
 
 def renderer_v2_env(settings):
     """Its launcher's defaults (gpu_v2/defaults.env), the game folder its shader index reads, and the
-    native passes as the launcher's switch says (off by default)."""
+    native passes and unified memory as the launcher's switches say (Windows: on and off)."""
     env = {}
     try:
         for line in V2_DEFAULTS.read_text(encoding='utf-8').splitlines():
@@ -115,9 +115,11 @@ def renderer_v2_env(settings):
     except OSError:
         pass
     env['ISS_GAME_DIR'] = settings['game_dir']
-    # Native passes: the launcher's "Native passes" switch (off by default: NVIDIA's Linux driver).
-    item = next(i for i in backports_table.ITEMS if i.key == 'native_passes')
-    env['ISS_NATIVE_PASSES'] = '1' if backports_table.effective(item, experimental_states(settings)) == '1' else '0'
+    # Native passes and unified memory: the launcher's switches (backports_table.py has the defaults).
+    states = experimental_states(settings)
+    for key, var in (('native_passes', 'ISS_NATIVE_PASSES'), ('v2_unified_memory', 'ISS_UNIFIED_MEMORY')):
+        item = next(i for i in backports_table.ITEMS if i.key == key)
+        env[var] = '1' if backports_table.effective(item, states) == '1' else '0'
     return env
 
 # Game language: PS4 system language ids (sceSystemServiceParamGetInt LANG). Which of them the

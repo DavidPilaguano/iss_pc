@@ -23,10 +23,11 @@ V2_NATIVE = {
     'exported': '2026-10-20',
     'names': {'en': 'RENDERER V2 + NATIVE PASSES', 'pt': 'RENDERER V2 + NATIVE PASSES'},
     'what': {
-        'en': 'RENDERER V2 with its native passes on (for tests): more frames in some places, but on NVIDIA\'s '
-              'Linux driver frame drops and crashes.',
-        'pt': 'RENDERER V2 com os native passes ligados (para testes): mais quadros em alguns lugares, mas no '
-              'driver NVIDIA do Linux quedas de quadros e travamentos.',
+        'en': 'RENDERER V2 with its native passes on and unified memory off: the default on Windows (11-20 -> '
+              '~40-45 FPS in gameplay on an RTX 3060). On NVIDIA\'s Linux driver: frame drops and crashes.',
+        'pt': 'RENDERER V2 com os native passes ligados e a memória unificada desligada: o padrão no Windows '
+              '(11-20 -> ~40-45 FPS no gameplay numa RTX 3060). No driver NVIDIA do Linux: quedas de quadros '
+              'e travamentos.',
     },
     'settings': dict(CURRENT['settings']),
     'items': dict(CURRENT['items'], TLG_RENDERER='2', TLG_NATIVE_PASSES='1'),
