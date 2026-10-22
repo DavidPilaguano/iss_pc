@@ -112,6 +112,22 @@ By **HayatoG** · YouTube [@hayatog-dev](https://www.youtube.com/@hayatog-dev) �
 
 <sub>FPS, worst frame and draws per frame every 5 s, from the port's log (`ISS_FRAME_STATS=1`), on an RTX 2060: median 27 FPS, above 30 FPS 44% of the time. The game has no frame cap. Made with `scripts/session_chart.py` (`0` = uncapped).</sub>
 
+## Plans
+
+| Plan | State |
+|---|---|
+| 720p | 📋 Planned |
+| 2K | 📋 Planned |
+| 4K | 📋 Planned |
+| Ultrawide | 📋 Planned |
+| 60 Hz | ✅ Partially done |
+| 120 Hz | 📋 Planned |
+| 240 Hz | 📋 Planned |
+| Mods | 📋 Planned |
+| Cheats | 📋 Planned |
+| FSR | 📋 Planned |
+| DLSS | 📋 Planned |
+
 ## Download
 
 The [**latest release**](https://github.com/HayatoG/iss_pc/releases/latest) is published when the maintainer chooses to bundle the accumulated changes. PRs build and test; approvals and merges do not trigger builds. On `main`, Linux and Windows build only through an authorized manual release run. Older ones stay under [Releases](https://github.com/HayatoG/iss_pc/releases) as history. See [how to publish](docs/RELEASES.md):
@@ -482,6 +498,22 @@ As capturas estão no topo da página.
 ![Desempenho de uma sessão de 7 minutos andando pela cidade](docs/screenshots/desempenho.png)
 
 <sub>FPS, pior quadro e draws por quadro a cada 5 s, tirados do log do port (`ISS_FRAME_STATS=1`), na RTX 2060: mediana de 27 FPS, 44% do tempo acima de 30 FPS. O jogo não tem trava de FPS. Gerado por `scripts/session_chart.py` (com `0` = sem trava).</sub>
+
+## Planos
+
+| Plano | Estado |
+|---|---|
+| 720p | 📋 Planejado |
+| 2K | 📋 Planejado |
+| 4K | 📋 Planejado |
+| Ultrawide | 📋 Planejado |
+| 60 Hz | ✅ Semi feito |
+| 120 Hz | 📋 Planejado |
+| 240 Hz | 📋 Planejado |
+| Mods | 📋 Planejado |
+| Cheats | 📋 Planejado |
+| FSR | 📋 Planejado |
+| DLSS | 📋 Planejado |
 
 ## Download
 
