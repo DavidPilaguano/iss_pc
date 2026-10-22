@@ -136,11 +136,25 @@ TextureCache::TextureCache(const Vulkan::Instance& instance_, Vulkan::Scheduler&
     if (const char* p = std::getenv("ISS_GC_BUDGET_MB"); p && *p)
         forced_gc_budget = u64(std::strtoull(p, nullptr, 10)) << 20;
     RefreshGcLimits();
-    std::fprintf(stderr, "TEXTURE_GC budget=%lld MB forced=%llu MB trigger=%llu MB pressure=%llu MB critical=%llu MB\n",
+    std::fprintf(stderr, "TEXTURE_GC budget=%lld MB forced=%llu MB image_budget=%d device_guard=%llu MB trigger=%llu MB pressure=%llu MB critical=%llu MB\n",
                  (long long)(device_local_memory >> 20), (unsigned long long)(forced_gc_budget >> 20),
+                 int(ImageBudgetMode()), (unsigned long long)(device_guard_memory >> 20),
                  (unsigned long long)(trigger_gc_memory >> 20),
                  (unsigned long long)(pressure_gc_memory >> 20),
                  (unsigned long long)(critical_gc_memory >> 20));
+}
+
+// ISS_GC_IMAGE_BUDGET (default on, =0 the old rule): the launcher's VRAM budget (ISS_GC_BUDGET_MB)
+// bounds the texture cache, as its name says, instead of the whole device's usage. Since #497 the
+// rest of renderer v2 (arena, staging, driver) holds ~2.3 GB on its own: compared with the device's
+// usage, a 3500 MB budget kept the collector deleting textures all the time (RTX 2060, 2026-10-22).
+// The device stays guarded: above card - RESIDENCY_HEADROOM (95% of larger cards) it runs critical.
+bool TextureCache::ImageBudgetMode() const {
+    static const bool enabled = [] {
+        const char* p = std::getenv("ISS_GC_IMAGE_BUDGET");
+        return !p || p[0] != '0';
+    }();
+    return enabled && forced_gc_budget != 0;
 }
 
 void TextureCache::RefreshGcLimits() {
@@ -165,11 +179,14 @@ void TextureCache::RefreshGcLimits() {
     }
     // Usage counts every allocation (buffers, swapchain, staging), not only images: on smaller
     // discrete cards keep RESIDENCY_HEADROOM free whatever the budget says.
+    device_guard_memory = card / 100 * 95;
     if (!instance.IsIntegrated() && card <= u64(SMALL_CARD_MEMORY)) {
-        const u64 headroom = std::max<u64>(card > u64(RESIDENCY_HEADROOM) ? card - RESIDENCY_HEADROOM : 0,
-                                           card / 2);
-        critical_gc_memory = std::min(critical_gc_memory, headroom);
+        device_guard_memory = std::max<u64>(card > u64(RESIDENCY_HEADROOM) ? card - RESIDENCY_HEADROOM : 0,
+                                            card / 2);
     }
+    // In image budget mode the limits apply to the images alone and the guard above to the
+    // device; otherwise both are the device's usage.
+    if (!ImageBudgetMode()) critical_gc_memory = std::min(critical_gc_memory, device_guard_memory);
     pressure_gc_memory = std::min(pressure_gc_memory, critical_gc_memory);
     trigger_gc_memory = std::min(trigger_gc_memory, pressure_gc_memory);
 }
@@ -1640,9 +1657,19 @@ void TextureCache::GarbageCollectImages() {
         }
     }
     if (instance.CanReportMemoryUsage()) {
-        total_used_memory = instance.GetDeviceMemoryUsage();
+        const u64 device = instance.GetDeviceMemoryUsage();
         if (gc_tick % 60 == 0) {
             RefreshGcLimits();
+        }
+        total_used_memory = device;
+        if (ImageBudgetMode()) {
+            // The images against the budget; the device's usage only escalates.
+            total_used_memory = image_bytes;
+            if (device >= device_guard_memory) {
+                total_used_memory = std::max(total_used_memory, critical_gc_memory);
+            } else if (device + (512ull << 20) >= device_guard_memory) {
+                total_used_memory = std::max(total_used_memory, pressure_gc_memory);
+            }
         }
     }
     if (total_used_memory < trigger_gc_memory) {

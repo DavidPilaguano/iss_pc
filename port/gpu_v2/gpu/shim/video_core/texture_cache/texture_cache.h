@@ -534,6 +534,7 @@ private:
 
     void GarbageCollectImages();
     void RefreshGcLimits();
+    bool ImageBudgetMode() const;
     void GarbageCollectSamplers();
 
 private:
@@ -560,6 +561,9 @@ private:
     u64 card_budget_memory = 0;
     /// ISS_GC_BUDGET_MB (the launcher's VRAM budget), 0 when unset.
     u64 forced_gc_budget = 0;
+    /// iss: the device usage above which the collector runs critical whatever the image bytes
+    /// (image budget mode, see GarbageCollectImages).
+    u64 device_guard_memory = 0;
     /// iss: bytes of the registered images (total_used_memory is the whole device's usage).
     u64 image_bytes = 0;
     u64 total_used_samplers = 0;
