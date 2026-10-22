@@ -553,6 +553,8 @@ private:
     u64 card_budget_memory = 0;
     /// ISS_GC_BUDGET_MB (the launcher's VRAM budget), 0 when unset.
     u64 forced_gc_budget = 0;
+    /// iss: bytes of the registered images (total_used_memory is the whole device's usage).
+    u64 image_bytes = 0;
     u64 total_used_samplers = 0;
     u64 trigger_gc_samplers = 0;
     u64 pressure_gc_samplers = 0;

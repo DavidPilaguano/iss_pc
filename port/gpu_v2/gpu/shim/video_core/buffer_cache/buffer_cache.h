@@ -249,6 +249,9 @@ public:
     /// work it waits for has been handed to the driver (asc_queue).
     void FlushComputeQueue();
 
+    /// iss: bytes of guest memory made resident in the arena (spilled: those in system memory).
+    u64 ArenaResidentBytes(bool spilled) const;
+
     /// Returns minimum granularity of a sparse memory bind.
     u32 GetSparsePageShift() const noexcept {
         return block_shift;
@@ -757,6 +760,8 @@ private:
     std::vector<u64> resident_full; ///< A bit per word of resident_bits that is all ones.
 
     u32 arena_memory_type_index{};
+    /// iss: a memory type outside VRAM the arena may also bind (~0u: none).
+    u32 arena_spill_type_index{~0u};
     u32 block_size{};
     u32 block_shift{};
     u32 blocks_per_arena_page{};
