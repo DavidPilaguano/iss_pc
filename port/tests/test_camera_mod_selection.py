@@ -41,6 +41,7 @@ class CameraModTests(unittest.TestCase):
             rows = run.list_mods({'game_dir': self.temp.name})
             self.assertEqual(rows[0][0], run.CAMERA_MOD_KEY)
             self.assertFalse(rows[0][3])
+            self.assertEqual(len(rows), 1)
         with mock.patch.object(run.mod_patches, 'game_app_version', return_value='01.06'), \
              mock.patch.object(run.mod_patches, 'external_patches', return_value=[]):
             self.assertEqual(run.list_mods({'game_dir': self.temp.name}), [])
@@ -58,6 +59,23 @@ class CameraModTests(unittest.TestCase):
                 env = run.build_env(settings, {'ISS_CAMERA_PAN_SCALE': '3'})
                 self.assertEqual(env['ISS_CAMERA_PAN_SCALE'], expected)
                 self.assertEqual(env['ISS_CAMERA_TILT_SCALE'], expected)
+
+    def test_combined_checkbox_controls_both_features_and_overrides_legacy(self):
+        settings = dict(run.DEFAULT_SETTINGS, game_dir=self.temp.name)
+        self.assertFalse(run.camera_pitch_mod_enabled())
+        with mock.patch.dict(os.environ, {'ISS_USER_DIR': self.temp.name,
+                                         'ISS_CAMERA_PREVENT_PITCH_SLOWDOWN': '1'}), \
+             mock.patch.object(run, 'pad_glyphs', return_value=None), \
+             mock.patch.object(run, 'window_icon', return_value=None), \
+             mock.patch.object(run, 'renderer_v2', return_value=True):
+            for speed, pitch in ((False, False), (True, False), (False, True), (True, True), (False, False)):
+                run.set_mod_enabled(run.CAMERA_MOD_KEY, speed)
+                run.set_mod_enabled(run.CAMERA_PITCH_MOD_KEY, pitch)
+                env = run.build_env(settings)
+                self.assertEqual(env['ISS_CAMERA_PREVENT_PITCH_SLOWDOWN'], '1' if speed else '0')
+                self.assertEqual(env['ISS_CAMERA_PAN_SCALE'], '1.5' if speed else '1')
+            self.config.write_text('{broken')
+            self.assertFalse(run.camera_pitch_mod_enabled())
 
 
 if __name__ == '__main__':
