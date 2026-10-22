@@ -148,6 +148,8 @@ struct Values {
     // Mouse and keyboard (src/runtime_pad.c through tlggpu_input_settings, src/mouse_stick.h):
     // the mouse turns the camera (right stick). Live from the menu.
     std::atomic<bool> mouse_enabled{true}, mouse_invert_y{false};
+    /// Controller vibration (src/runtime_pad.c pad_vibration). Live from the menu.
+    std::atomic<bool> rumble{true};
     std::atomic<float> mouse_sensitivity{1.0f}, mouse_smoothing{0.5f}, mouse_accel{0.0f}, mouse_deadzone{0.1f};
     /// Keyboard and mouse button remap (TLG_KEY_MAP syntax); written by Load only, read once.
     std::string key_map;

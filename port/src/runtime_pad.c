@@ -1015,12 +1015,17 @@ static ABI int32_t pad_info(int32_t handle, ControllerInfo *info) {
 static ABI int32_t pad_vibration(int32_t handle, const uint8_t *param) {
     if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
     if (!param) return ERR_INVALID_ARG;
-    static int enabled=-1;   /* TLG_RUMBLE=0: the controller never vibrates */
     static RumbleGate gate;  /* under the lock */
-    if (enabled<0) { const char *e=getenv("TLG_RUMBLE"); enabled=!(e && *e=='0'); }
-    if (!enabled) return 0;
+    /* The menu's Vibration switch (tlg.ini rumble, TLG_RUMBLE=0): off stops running motors once. */
+    TlgGpuInputSettings in;
+    tlggpu_input_settings(&in);
     pthread_mutex_lock(&lock);
     SDL_Gamepad *g=current_gamepad();
+    if (!in.rumble) {
+        if (g && (gate.low || gate.high) && rumble_gate(&gate,0,0,now_us())) SDL_RumbleGamepad(g,0,0,0);
+        pthread_mutex_unlock(&lock);
+        return 0;
+    }
     if (g && rumble_gate(&gate,param[0],param[1],now_us()))
         SDL_RumbleGamepad(g,(uint16_t)(param[0]*257),(uint16_t)(param[1]*257),1000);
     pthread_mutex_unlock(&lock);
