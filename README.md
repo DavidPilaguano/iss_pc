@@ -1,3 +1,5 @@
+> **Fix v2 update — October 22, 2026:** Camera speed 1.5× and the unzoomed diagonal slowdown fix now share one **Camera improvements (1.5x + slowdown fix)** checkbox. Windows is tested; the Linux package is building. Downloads remain unpublished until Linux checks finish. [Update details and installation](docs/CURSOR_CAMERA_FPS_UPDATE.md).
+
 <p align="center"><img src="port/packaging/icon/infamous-icon-1024.png" width="160" alt=""></p>
 
 <h1 align="center">inFAMOUS Second Son — native PC port</h1>
