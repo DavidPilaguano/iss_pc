@@ -1,27 +1,35 @@
 # Renderer v2 cursor, camera and Performance menu update
 
-Base release: `v2026.10.22-cde38af`.
+## Update — October 22, 2026
 
-## English
+The camera options are now combined into **Camera improvements (1.5x + slowdown fix)** in Mods. One checkbox enables the 50% increase in horizontal and vertical camera speed limits and prevents loss of horizontal boost during strong diagonal input at a vertical viewing limit with zoom off.
 
-- Fixes invisible overlay cursors by updating the overlay's own ImGui context for menu, guide and save-dialog transitions. All Renderer v2 presets share this code.
-- Fixes the Performance tab FPS dropdown: five labels match 30, 60, 120, 240 and Unlimited. A compile-time size check prevents another label/value mismatch.
-- Adds an optional Camera speed 1.5x entry to Mods for CUSA00223 01.07. It defaults off, persists in mods.json and applies on the next game launch. The guarded runtime hook increases actual horizontal and vertical camera speed parameters without multiplying controller axes or editing game files.
-- Adaptive slowdown, acceleration and pitch limits remain unchanged. If the mod appears inactive on first launch, close and reopen the game; this was a reported workaround in the previous development build, not an intended two-launch requirement.
-- Excludes incompatible MSYS2 icuuc.dll from the Windows Qt bundle while retaining Linux ICU libraries. ISS_SPEC_CONTENTS optionally selects a private library folder; the default remains _internal.
+Base: `v2026.10.22-cde38af`; game: **CUSA00223 01.07**. All four Renderer v2 presets share the fix. Existing Camera speed 1.5x selections carry over; new users must enable the combined checkbox before launching.
 
-Build with the repository's normal instructions. On MSYS2 CLANG64, run `TLG_RENDERER_V2=1 bash build.sh` from port/, then use normal packaging. Open Mods -> Camera speed 1.5x before launch. Open the overlay with Insert or Xbox LT + right-stick click. This branch contains source, not prebuilt ZIPs or proprietary game files.
+Windows package validation and manual gameplay testing passed. The player confirmed unzoomed diagonal rotation stays fast. The slight slowdown while aiming remains unchanged. Vertical limits and initial acceleration remain active. Broader scene testing is still useful.
 
-Windows validation: exact-release Renderer v2 build passed; actual menu function tested with both ImGui contexts; actual FPS dropdown drawn headlessly at all five values; generated camera code executed for identity, 1.5x and independent axes, with invalid-scale/signature/truncation rejection; frozen Qt launcher selftest passed after reproducing and fixing the ICU failure. Installed frozen-launcher checkbox off/on/off tests passed for Renderer v2, Native Passes, 8 GB and 12 GB presets while preserving their native-pass/VRAM settings.
+**Downloads are being prepared; the release remains unpublished while Linux builds and checks run.** The Linux build is available under this repository's Actions tab as **Camera update Linux**. No proprietary game files are uploaded or included.
 
-In-game visual confirmation, broader gameplay tests and Linux validation of this combined branch remain pending. The display FPS limit is distinct from engine frame rate.
+### Earlier fixes included
+
+- Invisible overlay cursor: menu, guide and save-dialog transitions use the overlay's own ImGui context.
+- Performance tab crash: FPS labels now match 30, 60, 120, 240 and Unlimited, with a compile-time count check.
+- Windows launcher: excludes incompatible MSYS2 `icuuc.dll` while retaining Linux ICU libraries.
+
+### Windows update installation
+
+After the download release is published, close the launcher and game, back up the package folder, and extract `renderer-v2-camera-complete-update.zip` into the folder containing `inFAMOUS Second Son.exe`. Replace matching files and retain the included `_cursor_camera_internal` folder. Open Mods and enable **Camera improvements (1.5x + slowdown fix)**. Changes apply on the next game launch.
+
+Do not use the Windows ZIP on Linux. Linux packaging and validation are pending. The original build instructions remain available in the repository README.
+
+### Validation
+
+Windows: exact-release Renderer v2 build; overlay-context and five-value FPS dropdown checks; generated camera hook execution and signature rejection; both pitch boundaries and both pan directions; zoom, neutral, reversal, small-input, moving-pitch and invalid-value exclusions; frozen launcher selftest; combined-checkbox off/on/off checks across all four Renderer v2 presets. Linux CI adds a portable generated-bridge execution test using synthetic instruction fixtures, requiring no game dump. Successful Linux build and packaging results will be recorded when available.
 
 ## Português (Brasil)
 
-Corrige o cursor invisível no Renderer v2 usando o contexto ImGui correto e corrige a aba Desempenho: os cinco rótulos correspondem a 30, 60, 120, 240 e Sem limite, com verificação da quantidade durante a compilação.
+**Atualização:** as duas opções agora estão reunidas em **Camera improvements (1.5x + slowdown fix)** na aba Mods. Uma única caixa ativa o aumento de 50% na velocidade da câmera e evita a perda de velocidade horizontal nas diagonais fortes ao atingir o limite vertical, sem zoom. As seleções antigas de Camera speed 1.5x são mantidas.
 
-Adiciona Camera speed 1.5x à lista de Mods para CUSA00223 01.07, desativado por padrão e salvo no mods.json. Ative antes de iniciar o jogo. A alteração aumenta os parâmetros reais de velocidade horizontal e vertical, sem multiplicar os eixos do controle nem editar o ELF. A versão e as assinaturas originais são verificadas. A redução adaptativa, a aceleração e os limites verticais permanecem. Se parecer inativo na primeira execução, feche e abra o jogo novamente; esse foi um contorno relatado, não um requisito intencional.
+A redução de velocidade durante a mira com zoom permanece. Os limites verticais e a aceleração inicial continuam ativos. A compilação e os testes do Windows passaram, e o jogador confirmou a rotação diagonal rápida sem zoom. O pacote Linux está em compilação e validação; a publicação permanece em rascunho até essa etapa terminar.
 
-Os quatro perfis do Renderer v2 compartilham o runtime: padrão, Native Passes, 8 GB e 12 GB. Abra o menu com Insert ou LT + clique no analógico direito no Xbox. O pacote Qt do Windows exclui a icuuc.dll incompatível do MSYS2; as bibliotecas ICU do Linux continuam elegíveis.
-
-A compilação e os testes locais de dropdown, contexto do cursor, código da câmera e launcher congelado passaram no Windows. A confirmação visual no jogo, testes mais amplos de gameplay e a validação Linux desta combinação ainda estão pendentes. Este branch contém código-fonte, sem arquivos proprietários do jogo.
+Inclui as correções anteriores do cursor invisível, da aba Desempenho (30, 60, 120, 240 e Sem limite) e do empacotamento ICU do launcher Windows. Não inclui arquivos proprietários do jogo. Não use o ZIP Windows no Linux.
