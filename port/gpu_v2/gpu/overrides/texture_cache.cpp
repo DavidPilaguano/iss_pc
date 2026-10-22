@@ -133,8 +133,10 @@ TextureCache::TextureCache(const Vulkan::Instance& instance_, Vulkan::Scheduler&
     // ISS_GC_BUDGET_MB: the launcher's VRAM budget (3500 by default). Only the first renderer
     // read it: renderer v2 aimed at the driver's budget, critical at 5 GB on 8 GB cards, and
     // ran out of VRAM (2026-10-21, RX 6600 / RTX 5050 / RTX 5060).
-    if (const char* p = std::getenv("ISS_GC_BUDGET_MB"); p && *p)
-        forced_gc_budget = u64(std::strtoull(p, nullptr, 10)) << 20;
+    if (const char* p = std::getenv("ISS_GC_BUDGET_MB"); p && *p) {
+        if (std::strcmp(p, "auto") == 0) auto_gc_budget = true;
+        else forced_gc_budget = u64(std::strtoull(p, nullptr, 10)) << 20;
+    }
     RefreshGcLimits();
     std::fprintf(stderr, "TEXTURE_GC budget=%lld MB forced=%llu MB image_budget=%d device_guard=%llu MB trigger=%llu MB pressure=%llu MB critical=%llu MB\n",
                  (long long)(device_local_memory >> 20), (unsigned long long)(forced_gc_budget >> 20),
@@ -154,7 +156,7 @@ bool TextureCache::ImageBudgetMode() const {
         const char* p = std::getenv("ISS_GC_IMAGE_BUDGET");
         return !p || p[0] != '0';
     }();
-    return enabled && forced_gc_budget != 0;
+    return enabled && (forced_gc_budget != 0 || auto_gc_budget);
 }
 
 void TextureCache::RefreshGcLimits() {
@@ -171,7 +173,24 @@ void TextureCache::RefreshGcLimits() {
     trigger_gc_memory = base_trigger_gc_memory;
     pressure_gc_memory = base_pressure_gc_memory;
     critical_gc_memory = base_critical_gc_memory;
+    // Usage counts every allocation (buffers, swapchain, staging), not only images: on smaller
+    // discrete cards keep RESIDENCY_HEADROOM free whatever the budget says.
+    device_guard_memory = card / 100 * 95;
+    if (!instance.IsIntegrated() && card <= u64(SMALL_CARD_MEMORY)) {
+        device_guard_memory = std::max<u64>(card > u64(RESIDENCY_HEADROOM) ? card - RESIDENCY_HEADROOM : 0,
+                                            card / 2);
+    }
     u64 budget = forced_gc_budget ? std::min(forced_gc_budget, card) : 0;
+    // ISS_GC_BUDGET_MB=auto: the textures get what the device guard leaves after everything else
+    // (arena, staging, swapchain, the driver), measured now: any card, other programs' VRAM and
+    // the arena growing in new areas included. 512 MB at least.
+    if (auto_gc_budget && instance.CanReportMemoryUsage()) {
+        const u64 usage = instance.GetDeviceMemoryUsage();
+        const u64 others = usage > image_bytes ? usage - image_bytes : 0;
+        auto_budget_memory =
+            std::max<u64>(device_guard_memory > others ? device_guard_memory - others : 0, 512ull << 20);
+        budget = auto_budget_memory;
+    }
     if (budget == 0 && instance.IsIntegrated()) {
         budget = card;
     }
@@ -179,13 +198,6 @@ void TextureCache::RefreshGcLimits() {
         trigger_gc_memory = budget / 10 * 7;
         pressure_gc_memory = budget / 100 * 85;
         critical_gc_memory = budget / 100 * 95;
-    }
-    // Usage counts every allocation (buffers, swapchain, staging), not only images: on smaller
-    // discrete cards keep RESIDENCY_HEADROOM free whatever the budget says.
-    device_guard_memory = card / 100 * 95;
-    if (!instance.IsIntegrated() && card <= u64(SMALL_CARD_MEMORY)) {
-        device_guard_memory = std::max<u64>(card > u64(RESIDENCY_HEADROOM) ? card - RESIDENCY_HEADROOM : 0,
-                                            card / 2);
     }
     // In image budget mode the limits apply to the images alone and the guard above to the
     // device; otherwise both are the device's usage.
@@ -1625,6 +1637,10 @@ void TextureCache::GarbageCollectImages() {
         const u64 arena =
             buffer_cache.ArenaResidentBytes(false) - buffer_cache.ArenaResidentBytes(true);
         const u64 known = image_bytes + arena;
+        if (auto_gc_budget)
+            std::fprintf(stderr, "TEXTURE_BUDGET_AUTO textures=%llu MB guard=%llu MB\n",
+                         (unsigned long long)(auto_budget_memory >> 20),
+                         (unsigned long long)(device_guard_memory >> 20));
         std::fprintf(stderr,
                      "VRAM_BREAKDOWN usage=%llu MB budget_now=%llu MB images=%llu MB arena=%llu MB "
                      "arena_spilled=%llu MB other=%llu MB critical=%llu MB\n",

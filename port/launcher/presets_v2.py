@@ -43,10 +43,13 @@ def _by_vram(gb, budget_mb):
         'exported': '2026-10-22',
         'names': {'en': f'RENDERER V2 · {gb} GB', 'pt': f'RENDERER V2 · {gb} GB'},
         'what': {
-            'en': f'RENDERER V2 + NATIVE PASSES for a {gb} GB card: texture cache budget {budget_mb} MB.',
-            'pt': f'RENDERER V2 + NATIVE PASSES para placa de {gb} GB: orçamento do cache de texturas {budget_mb} MB.',
+            'en': f'RENDERER V2 + NATIVE PASSES for a {gb} GB card: fixed texture cache budget {budget_mb} MB '
+                  '(automatic budget off).',
+            'pt': f'RENDERER V2 + NATIVE PASSES para placa de {gb} GB: orçamento fixo do cache de texturas '
+                  f'{budget_mb} MB (orçamento automático desligado).',
         },
-        'settings': dict(CURRENT['settings'], vram_budget_mb=budget_mb),
+        # A fixed budget: the automatic one (ISS_GC_BUDGET_MB=auto) off.
+        'settings': dict(CURRENT['settings'], vram_budget_mb=budget_mb, vram_auto=False),
         'items': dict(V2_NATIVE['items']),
     }
 

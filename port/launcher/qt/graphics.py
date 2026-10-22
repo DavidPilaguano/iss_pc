@@ -23,6 +23,7 @@ SETTING_ROWS = {
     's:precompile_shaders': ('precompile_shaders', 'switch', False),
     's:close_on_play': ('close_on_play', 'switch', True),
     's:reopen_launcher': ('reopen_launcher', 'switch', False),
+    's:vram_auto': ('vram_auto', 'switch', False),
     's:vram_budget_mb': ('vram_budget_mb', 'slider', False),
 }
 DISPLAY_MODES = ('Windowed', 'Borderless', 'Fullscreen')
@@ -38,7 +39,7 @@ SECTIONS = (
     ('gfx_sec_gpu', ('TLG_ASYNC_SHADERS', 'TLG_BACKGROUND_WARMUP', 's:gpu_readbacks', 's:eager_readback',
                      's:write_merge', 'TLG_DEFERRED_READBACK', 'TLG_STALE_READBACK', 'TLG_DRAIN_SLEEP', 's:precompile_shaders',
                      's:close_on_play', 's:reopen_launcher')),
-    ('gfx_sec_vram', ('s:vram_budget_mb',)),
+    ('gfx_sec_vram', ('s:vram_auto', 's:vram_budget_mb')),
     ('gfx_sec_overlay', ('s:show_fps',) + OVERLAY_IDS),
 )
 STEPS = {'menu:overlay_scale': 10, 's:vram_budget_mb': 200}
@@ -113,7 +114,13 @@ class Graphics(QObject):
                'valueText': '', 'disabled': False, 'decimals': 0, 'note': '', 'info': '', 'action': None}
         value = self.settings.get(key, tlg_run.DEFAULT_SETTINGS.get(key))
         default = tlg_run.DEFAULT_SETTINGS.get(key)
+        if key == 'vram_auto':
+            # Only renderer v2 computes it; this port's renderer always uses the budget below.
+            row['disabled'] = backports_table.effective(gfxlogic.item_by_id('TLG_RENDERER'),
+                                                        self.backend.fix_states) != '2'
         if key == 'vram_budget_mb':
+            row['disabled'] = bool(self.settings.get('vram_auto', True)) and backports_table.effective(
+                gfxlogic.item_by_id('TLG_RENDERER'), self.backend.fix_states) == '2'
             row['info'] = self.vramLine
             row['note'] = self.vramWarn
             if self.canSuggest:

@@ -561,6 +561,10 @@ private:
     u64 card_budget_memory = 0;
     /// ISS_GC_BUDGET_MB (the launcher's VRAM budget), 0 when unset.
     u64 forced_gc_budget = 0;
+    /// ISS_GC_BUDGET_MB=auto: the texture budget follows the device (RefreshGcLimits).
+    bool auto_gc_budget = false;
+    /// The texture budget the automatic mode computed last (0 outside it).
+    u64 auto_budget_memory = 0;
     /// iss: the device usage above which the collector runs critical whatever the image bytes
     /// (image budget mode, see GarbageCollectImages).
     u64 device_guard_memory = 0;
