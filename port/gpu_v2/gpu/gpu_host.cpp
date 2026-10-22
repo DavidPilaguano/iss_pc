@@ -136,8 +136,11 @@ extern "C" int tlggpu_cpu_write(void*, const void*, int, uint64_t) {
     return 0; // the runtime writes normally (faults reach tlggpu_handle_fault)
 }
 
+extern std::atomic<unsigned long long> g_iss_presented_frames;
 extern "C" void tlggpu_frame_counters(TlgGpuFrameCounters* out) {
     *out = {};
+    // Frames shown: the scripted route detects gameplay by draws per frame (src/runtime_pad.c).
+    out->shown = out->presented = g_iss_presented_frames.load(std::memory_order_relaxed);
 }
 namespace Vulkan { extern std::atomic<u64> g_iss_total_draws; }
 extern "C" uint64_t tlggpu_total_draws(void) {
