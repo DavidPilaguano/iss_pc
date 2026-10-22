@@ -9,6 +9,7 @@
 #include "gpu_blackbox.h"
 #include "guest_heap_census.h"
 #include "native_passes.h"
+#include "vram_stats.h"
 #include <cstdio>
 #include <cstdlib>
 #include <xxhash.h>
@@ -1613,6 +1614,17 @@ void TextureCache::GarbageCollectImages() {
                      (unsigned long long)(buffer_cache.ArenaResidentBytes(true) >> 20),
                      (unsigned long long)((usage > known ? usage - known : 0) >> 20),
                      (unsigned long long)(critical_gc_memory >> 20));
+        {
+            namespace vs = iss::vram_stats;
+            std::fprintf(stderr, "VRAM_OTHER");
+            for (int k = 0; k < vs::KindCount; ++k)
+                std::fprintf(stderr, " %s=%llu MB", vs::KindNames[k],
+                             (unsigned long long)(vs::Bytes(k) >> 20));
+            std::fprintf(stderr, " | arena by reason: buffers=%llu MB image_sources=%llu MB gpu_writes=%llu MB\n",
+                         (unsigned long long)(buffer_cache.ArenaReasonBytes(0) >> 20),
+                         (unsigned long long)(buffer_cache.ArenaReasonBytes(1) >> 20),
+                         (unsigned long long)(buffer_cache.ArenaReasonBytes(2) >> 20));
+        }
         // What the game holds of its GPU heaps (live) against the span it reached: the arena
         // can only shrink to the live part.
         iss::heap_census::Heap h[2];
