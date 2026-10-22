@@ -22,6 +22,7 @@ struct Globals {
     const Instance* instance{};
     Scheduler* scheduler{};
     VideoCore::BufferCache* buffer_cache{};
+    VideoCore::TextureCache* texture_cache{};
     PipelineCache* pipeline_cache{}; ///< speculative compute translations (ISS_SPEC_COMPUTE)
     std::atomic<const VideoCore::Buffer*> unified{};
     std::atomic<VAddr> unified_base{};
@@ -966,6 +967,12 @@ static np::DrawResult Record(np::Segment& s, void* regs_ptr, u64 key, const u32*
         if (t->pipeline != shape && !NativeRecorder::InstallViews(*t->pipeline, regs, views, num_views))
             return miss(MissViews);
     }
+    // The template's views as learned: an image freed since may have its views destroyed, and
+    // writing one into the command buffer crashed NVIDIA's driver. The command processor checks
+    // the rest (TexturesValid) before executing the segment.
+    for (const auto& cap : t->images) {
+        if (cap.id && !g.texture_cache->ImageAlive(cap.id, cap.uid)) return miss(MissViews);
+    }
     const auto* pipeline = t->pipeline;
     if (!pipeline->IsReady() || (!pipeline->UsesPushDescriptors() && !NativeMaterial::SetsEnabled()))
         return miss(MissPipeline);
@@ -1468,6 +1475,7 @@ void Rasterizer::NativePassesSetup() {
     g.instance = &instance;
     g.scheduler = &scheduler;
     g.buffer_cache = &buffer_cache;
+    g.texture_cache = &texture_cache;
     g.pipeline_cache = &pipeline_cache;
     Shader::Info::ud_snapshots_used.store(true, std::memory_order_relaxed);
     g.ready.store(true, std::memory_order_release);

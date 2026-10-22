@@ -7,6 +7,8 @@
 #include <thread>
 #include <unordered_map>
 #include "gpu_blackbox.h"
+#include "guest_heap_census.h"
+#include "native_passes.h"
 #include <cstdio>
 #include <cstdlib>
 #include <xxhash.h>
@@ -1422,6 +1424,8 @@ void TextureCache::RegisterImage(ImageId image_id) {
     total_used_memory += Common::AlignUp(image.info.guest_size, 1024);
     image_bytes += Common::AlignUp(image.info.guest_size, 1024);
     image.lru_id = lru_cache.Insert(image_id, gc_tick);
+    if (image_id.index < NumImageGens)
+        image_uids[image_id.index].store(image.image_uid, std::memory_order_release);
     ForEachPage(image.info.guest_address, image.info.guest_size, [this, image_id](u64 page) {
         page_table[page].push_back(image_id);
         page_image_counts[page].fetch_add(1, std::memory_order_release);
@@ -1609,6 +1613,19 @@ void TextureCache::GarbageCollectImages() {
                      (unsigned long long)(buffer_cache.ArenaResidentBytes(true) >> 20),
                      (unsigned long long)((usage > known ? usage - known : 0) >> 20),
                      (unsigned long long)(critical_gc_memory >> 20));
+        // What the game holds of its GPU heaps (live) against the span it reached: the arena
+        // can only shrink to the live part.
+        iss::heap_census::Heap h[2];
+        if (iss::heap_census::Read(h)) {
+            for (int i = 0; i < 2; ++i)
+                std::fprintf(stderr,
+                             "HEAP_CENSUS heap=%d live=%llu MB peak=%llu MB span=%llu MB "
+                             "allocs=%llu frees=%llu\n",
+                             i, (unsigned long long)(h[i].live_bytes >> 20),
+                             (unsigned long long)(h[i].peak_bytes >> 20),
+                             (unsigned long long)((h[i].highest - h[i].lowest) >> 20),
+                             (unsigned long long)h[i].allocs, (unsigned long long)h[i].frees);
+        }
     }
     if (instance.CanReportMemoryUsage()) {
         total_used_memory = instance.GetDeviceMemoryUsage();
@@ -1851,8 +1868,13 @@ void TextureCache::DeleteImage(ImageId image_id) {
         }
     }
 
+    // Native passes templates may hold this image's views: clearing its uid makes their pool jobs miss,
+    // and the views go only after the jobs that may have checked before it (native_passes.h).
+    if (image_id.index < NumImageGens) image_uids[image_id.index].store(0);
+    const u64 recording_ticket = iss::native_passes::RecordingTicket();
     // Reclaim image and any image views it references.
-    scheduler.DeferOperation([this, image_id] {
+    scheduler.DeferOperation([this, image_id, recording_ticket] {
+        iss::native_passes::WaitRecordingBefore(recording_ticket);
         Image& image = slot_images[image_id];
         for (auto& backing : image.backing_images) {
             for (const ImageViewId image_view_id : backing.image_view_ids) {
