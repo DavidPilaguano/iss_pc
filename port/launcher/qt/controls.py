@@ -63,6 +63,9 @@ class Controls(QObject):
         rows = [self._row('c:stick_deadzone', self.t('deadzone'), self.t('deadzone_hint'), 'slider', False,
                           zone != tlg_run.DEFAULT_SETTINGS['stick_deadzone'], lo=0, hi=40, step=1, unit='%',
                           value=zone, valueText=f'{zone}%')]
+        rumble = self.settings.get('rumble', True) is not False
+        rows.append(self._row('c:rumble', self.t('ctl_rumble'), self.t('ctl_what_rumble'), 'switch', False,
+                              not rumble, on=rumble))
         item = gfxlogic.item_by_id('menu:sensor_aim')
         value = int(backports_table.effective(item, self.backend.fix_states))
         rows.append(self._row(item.id, self.backend.t_.pair(item.name), self.backend.t_.pair(item.what), 'slider',
@@ -130,6 +133,9 @@ class Controls(QObject):
         s = self.settings
         if rid == 'c:stick_deadzone':
             s['stick_deadzone'] = min(max(int(float(value)), 0), 40)
+            tlg_run.save_settings(s)
+        elif rid == 'c:rumble':
+            s['rumble'] = value in ('1', 'true')
             tlg_run.save_settings(s)
         elif rid.startswith('m:'):
             key = rid[2:]

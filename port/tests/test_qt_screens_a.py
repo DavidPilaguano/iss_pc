@@ -656,6 +656,16 @@ class ControllerTests(unittest.TestCase):
         self.assertIn('sensor_aim=150', self.ini_text())
         self.assertEqual(150, self.controls.pad_model.get('menu:sensor_aim')['value'])
 
+    def test_rumble_switch_turns_the_controller_vibration_off(self):
+        self.assertTrue(self.controls.pad_model.get('c:rumble')['on'])
+        self.assertNotIn('TLG_RUMBLE', logic.tlg_run.build_env(self.backend.settings))
+        self.controls.setValue('c:rumble', '0')
+        self.assertIs(False, self.saved_settings()['rumble'])
+        self.assertFalse(self.controls.pad_model.get('c:rumble')['on'])
+        self.assertEqual('0', logic.tlg_run.build_env(self.backend.settings)['TLG_RUMBLE'])
+        self.controls.setValue('c:rumble', '1')
+        self.assertNotIn('TLG_RUMBLE', logic.tlg_run.build_env(self.backend.settings))
+
     def test_mouse_keys_go_to_tlg_ini_and_defaults_remove_them(self):
         self.controls.setValue('m:mouse_sensitivity', '1.5')
         self.controls.setValue('m:mouse_invert_y', '1')

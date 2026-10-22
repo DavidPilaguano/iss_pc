@@ -309,6 +309,7 @@ DEFAULT_SETTINGS = {
     'vram_budget_mb': 3500,  # 5600 runs out of VRAM loading the first level (RTX 2060, 6 GB)
     'vram_auto': True,       # renderer v2: ISS_GC_BUDGET_MB=auto, the texture budget follows the card live
     'stick_deadzone': 10,    # percent; runtime_pad.c ISS_STICK_DEADZONE
+    'rumble': True,          # controller vibration; off: TLG_RUMBLE=0 (runtime_pad.c)
     'eager_readback': False,  # ISS_EAGER_READBACK: copy GPU results the game reads back at each fence
     'write_merge': True,     # ISS_WRITE_MERGE: game memcpy/memset into GPU memory without a GPU wait
     'deferred_readback': True,  # ISS_DEFERRED_READBACK: the game thread waits for its own GPU reads
@@ -767,6 +768,8 @@ def build_env(settings, extra=None):
     env['ISS_WRITE_MERGE'] = os.environ.get('ISS_WRITE_MERGE', '1' if settings.get('write_merge', True) else '0')
     env['ISS_DEFERRED_READBACK'] = os.environ.get('ISS_DEFERRED_READBACK', '1' if settings.get('deferred_readback', True) else '0')
     env['ISS_STICK_DEADZONE'] = os.environ.get('ISS_STICK_DEADZONE', f"{int(settings.get('stick_deadzone', 10)) / 100:.2f}")
+    if settings.get('rumble', True) is False:
+        env.setdefault('TLG_RUMBLE', '0')
     for name, value in padsettings.environment(settings).items():   # mouse touchpad mode, TLG_KEY_MAP
         env.setdefault(name, value)
     env['ISS_LANGUAGE'] = os.environ.get('ISS_LANGUAGE', str(GAME_LANGUAGES[resolve_game_language(settings)]))
