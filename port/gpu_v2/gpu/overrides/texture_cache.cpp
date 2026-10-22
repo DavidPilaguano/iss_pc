@@ -160,9 +160,12 @@ bool TextureCache::ImageBudgetMode() const {
 void TextureCache::RefreshGcLimits() {
     // The driver's budget now: lower than at startup when other programs hold VRAM, and the
     // only meaningful one on integrated GPUs.
+    // The startup budget can come in low (another program holding VRAM as the game starts: 4924
+    // MB, then 5394, RTX 2060): the device guard then sat under the normal usage and the collector
+    // ran critical all the time. The current budget, both ways.
     const u64 now = instance.GetDeviceMemoryBudgetNow();
     u64 card = card_budget_memory;
-    if (now != 0 && (instance.IsIntegrated() || now < card)) {
+    if (now != 0) {
         card = now;
     }
     trigger_gc_memory = base_trigger_gc_memory;
