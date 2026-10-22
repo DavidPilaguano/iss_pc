@@ -4281,6 +4281,19 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, Shader::Backend::Binding
                                      static_cast<unsigned long long>(observed ? observed->address_reuses : 0));
                     }
                 }
+                if (size >= (256ull << 20)) {
+                    static std::atomic<u32> huge_logged{};
+                    if (huge_logged.fetch_add(1, std::memory_order_relaxed) < 40)
+                        std::fprintf(stderr,
+                                     "HUGE_BINDING hash=0x%llx stage=%d descriptor=%u base=0x%llx size=%llu MB "
+                                     "stride=%u records=%u written=%d formatted=%d\n",
+                                     (unsigned long long)stage.pgm_hash, int(stage.hw_stage),
+                                     unsigned(&desc - stage.buffers.data()),
+                                     (unsigned long long)vsharp.base_address,
+                                     (unsigned long long)(size >> 20), unsigned(vsharp.GetStride()),
+                                     unsigned(vsharp.num_records), int(desc.is_written),
+                                     int(desc.is_formatted));
+                }
                 bool known_unwritten = false;
                 const bool reuse_check = Common::Perf::GetTuning().reuse_buffer_checks.load(std::memory_order_relaxed);
                 const auto [buffer, offset] = [&] {

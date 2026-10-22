@@ -588,7 +588,13 @@ struct Worker {
                 .allocationSize = requirements.size,
                 .memoryTypeIndex = type,
             });
-            if (result == vk::Result::eSuccess) memory = allocated;
+            if (result == vk::Result::eSuccess) {
+                memory = allocated;
+                static std::atomic<u32> rings{};
+                std::fprintf(stderr, "VRAM_RING native_passes worker=%u %llu MB vram=%d\n",
+                             rings.fetch_add(1) + 1, (unsigned long long)(requirements.size >> 20),
+                             int(type == types[0]));
+            }
         }
         if (!memory) return false;
         Check(device.bindBufferMemory(ring, memory, 0));

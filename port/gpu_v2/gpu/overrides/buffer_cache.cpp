@@ -83,6 +83,12 @@ namespace iss::asc_stats_api {void Print(){iss::asc_stats::Print();}}
 u64 g_iss_dcb_lo{}, g_iss_dcb_hi{};
 
 namespace VideoCore {
+namespace {
+// Why ranges became resident: 0 a buffer binding, 1 an image's source bytes, 2 a GPU write.
+thread_local int residency_reason = 0;
+std::atomic<u64> arena_reason_bytes[3]{};
+} // namespace
+
 
 namespace {
 // ISS_PARALLEL_UPLOAD_COPY (default on, =0 off): the guest copy of a large upload part split in
@@ -2736,6 +2742,9 @@ std::pair<const Buffer*, u64> BufferCache::ObtainBuffer(VAddr device_addr, u32 s
             return ObtainUnified(device_addr, size, is_written, known_unwritten);
         }
     }
+    const int reason_before = residency_reason;
+    if (is_written && reason_before == 0) residency_reason = 2;
+    SCOPE_EXIT { residency_reason = reason_before; };
     ObtainTimer obtain_timer{device_addr, size, is_written,
                              ObtainCensusEnabled() && liverpool && liverpool->IsCurrentCpThread()};
     auto& stream_copies = ComputeScratchActive() ? compute_scratch.stream_copies
@@ -2991,6 +3000,8 @@ std::pair<const Buffer*, u64> BufferCache::SyncReadInPlace(VAddr device_addr, u3
 }
 
 std::pair<const Buffer*, u64> BufferCache::ObtainBufferForImage(VAddr device_addr, u32 size) {
+    residency_reason = 1;
+    SCOPE_EXIT { residency_reason = 0; };
     if (IsUnified(device_addr, size)) {
         // The GPU copies the image from the guest's bytes in place (in order with its writes).
         iss::unified::Add(iss::unified::ImageSources);
@@ -3350,6 +3361,7 @@ struct ResidencyPool {
 ResidencyPool residency_pools[2];
 std::atomic<u64> arena_resident_bytes[2]{};
 
+
 std::pair<vk::DeviceMemory, u64> AllocateResidency(vk::Device device, u32 type_index, u64 size,
                                                    ResidencyPool& pool) {
     static const bool enabled = [] {
@@ -3392,6 +3404,10 @@ std::pair<vk::DeviceMemory, u64> AllocateResidency(vk::Device device, u32 type_i
     return {pool.chunk, offset};
 }
 } // namespace
+
+u64 BufferCache::ArenaReasonBytes(int reason) const {
+    return arena_reason_bytes[reason].load(std::memory_order_relaxed);
+}
 
 u64 BufferCache::ArenaResidentBytes(bool spilled) const {
     if (spilled) {
@@ -3438,6 +3454,18 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
         instance.GetDevice(), spill ? arena_spill_type_index : arena_memory_type_index, new_bytes,
         residency_pools[spill ? 1 : 0]);
     arena_resident_bytes[spill ? 1 : 0].fetch_add(new_bytes, std::memory_order_relaxed);
+    arena_reason_bytes[residency_reason].fetch_add(new_bytes, std::memory_order_relaxed);
+    // The large residency requests: which guest ranges fill the arena.
+    if (new_bytes >= (8ull << 20)) {
+        static std::atomic<u32> logged{};
+        if (logged.fetch_add(1, std::memory_order_relaxed) < 200)
+            std::fprintf(stderr, "ARENA_RESIDENT range=%llx-%llx new=%llu MB request=%llu MB reason=%d\n",
+                         (unsigned long long)(first_block << block_shift),
+                         (unsigned long long)((last_block + 1) << block_shift),
+                         (unsigned long long)(new_bytes >> 20),
+                         (unsigned long long)(((last_block - first_block + 1) << block_shift) >> 20),
+                         residency_reason);
+    }
 
     boost::container::small_vector<vk::BufferCopy, 8> copies;
     const auto staging =

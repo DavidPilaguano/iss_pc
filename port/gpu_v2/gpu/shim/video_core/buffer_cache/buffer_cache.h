@@ -251,6 +251,8 @@ public:
 
     /// iss: bytes of guest memory made resident in the arena (spilled: those in system memory).
     u64 ArenaResidentBytes(bool spilled) const;
+    /// Bytes made resident by: 0 buffer bindings, 1 image sources, 2 GPU writes.
+    u64 ArenaReasonBytes(int reason) const;
 
     /// Returns minimum granularity of a sparse memory bind.
     u32 GetSparsePageShift() const noexcept {
