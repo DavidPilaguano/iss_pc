@@ -33,4 +33,29 @@ V2_NATIVE = {
     'items': dict(CURRENT['items'], TLG_RENDERER='2', TLG_NATIVE_PASSES='1'),
 }
 
-V2_PRESETS = (V2_ON, V2_NATIVE)
+
+def _by_vram(gb, budget_mb):
+    """RENDERER V2 + NATIVE PASSES with the texture cache budget of a card of `gb` GB. Renderer v2
+    keeps 1.5 GB free for buffers on cards up to 12 GB whatever the budget, and binds only the part
+    of the GPU heap the game reads (#497: 5.6 -> 3.1 GB of VRAM on an RTX 2060)."""
+    return {
+        'id': f'renderer_v2_{gb}gb',
+        'exported': '2026-10-22',
+        'names': {'en': f'RENDERER V2 · {gb} GB', 'pt': f'RENDERER V2 · {gb} GB'},
+        'what': {
+            'en': f'RENDERER V2 + NATIVE PASSES for a {gb} GB card: texture cache budget {budget_mb} MB.',
+            'pt': f'RENDERER V2 + NATIVE PASSES para placa de {gb} GB: orçamento do cache de texturas {budget_mb} MB.',
+        },
+        'settings': dict(CURRENT['settings'], vram_budget_mb=budget_mb),
+        'items': dict(V2_NATIVE['items']),
+    }
+
+
+# The launcher's VRAM rule (qt/gfxlogic.py): 6 GB 3500, 8 GB 5000, 12 GB 8500.
+V2_6GB = _by_vram(6, 3500)
+V2_8GB = _by_vram(8, 5000)
+V2_12GB = _by_vram(12, 8500)
+
+# The sized ones first: a preset without a VRAM budget (V2_NATIVE) matches any budget, so the sized
+# one with the player's budget is the one shown as current.
+V2_PRESETS = (V2_6GB, V2_8GB, V2_12GB, V2_ON, V2_NATIVE)
