@@ -150,7 +150,7 @@ TextureCache::TextureCache(const Vulkan::Instance& instance_, Vulkan::Scheduler&
 // bounds the texture cache, as its name says, instead of the whole device's usage. Since #497 the
 // rest of renderer v2 (arena, staging, driver) holds ~2.3 GB on its own: compared with the device's
 // usage, a 3500 MB budget kept the collector deleting textures all the time (RTX 2060, 2026-10-22).
-// The device stays guarded: above card - RESIDENCY_HEADROOM (95% of larger cards) it runs critical.
+// The device stays guarded: above card - ISS_VRAM_HEADROOM_MB (95% of larger cards) it runs critical.
 bool TextureCache::ImageBudgetMode() const {
     static const bool enabled = [] {
         const char* p = std::getenv("ISS_GC_IMAGE_BUDGET");
@@ -174,10 +174,17 @@ void TextureCache::RefreshGcLimits() {
     pressure_gc_memory = base_pressure_gc_memory;
     critical_gc_memory = base_critical_gc_memory;
     // Usage counts every allocation (buffers, swapchain, staging), not only images: on smaller
-    // discrete cards keep RESIDENCY_HEADROOM free whatever the budget says.
+    // discrete cards keep a headroom free whatever the budget says.
     device_guard_memory = card / 100 * 95;
     if (!instance.IsIntegrated() && card <= u64(SMALL_CARD_MEMORY)) {
-        device_guard_memory = std::max<u64>(card > u64(RESIDENCY_HEADROOM) ? card - RESIDENCY_HEADROOM : 0,
+        // ISS_VRAM_HEADROOM_MB (default 768): 1.5 GB dated from the arena jumping by gigabytes
+        // (#497 ended that: 12 MB at most in a walk through the city); with it the automatic budget
+        // left 1.8 GB of a 6 GB card unused while the collector deleted 16k textures (2026-10-22).
+        static const u64 headroom = [] {
+            const char* p = std::getenv("ISS_VRAM_HEADROOM_MB");
+            return u64(p ? std::strtoull(p, nullptr, 10) : 768) << 20;
+        }();
+        device_guard_memory = std::max<u64>(card > headroom ? card - headroom : 0,
                                             card / 2);
     }
     u64 budget = forced_gc_budget ? std::min(forced_gc_budget, card) : 0;
