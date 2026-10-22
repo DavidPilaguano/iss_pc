@@ -14,6 +14,12 @@ extern "C" __attribute__((naked,sysv_abi)) void run_stub(void *, void *, float *
         "add $0x208,%rsp\n pop %rbx\n pop %r14\n ret\n");
 }
 int main(int argc,char **argv) {
+    assert(iss_camera_title_supported("CUSA00223","01.07"));
+    assert(iss_camera_title_supported("CUSA00004","01.07"));
+    assert(iss_camera_title_supported("CUSA00004","01.00"));
+    assert(!iss_camera_title_supported("CUSA00223","01.00"));
+    assert(!iss_camera_title_supported("CUSA99999","01.07"));
+    assert(!iss_camera_title_supported("CUSA00004","01.06"));
     float scale;
     for (const char *s : {"nan","inf","0","-1","4.01","1.5junk","1e99"})
         assert(!iss_camera_scale(s,&scale));

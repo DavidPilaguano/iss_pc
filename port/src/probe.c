@@ -763,7 +763,7 @@ static void install_iss_camera_speed(const char *app0, Segment *segments, uint64
         if ((segments[i].flags & 1) && segments[i].address <= ISS_CAMERA_SITE &&
             ISS_CAMERA_SITE-segments[i].address <= segments[i].size &&
             ISS_CAMERA_LENGTH <= segments[i].size-(ISS_CAMERA_SITE-segments[i].address)) executable = 1;
-    if (strcmp(serial,"CUSA00223") || strcmp(version,"01.07") || !executable ||
+    if (!iss_camera_title_supported(serial,version) || !executable ||
         !iss_camera_signature_match(image,size)) {
         puts("Camera speed: disabled (title/version or original-code signature mismatch)");
         return;
@@ -794,7 +794,7 @@ static void install_iss_pitch_safeguard(const char *app0, Segment *segments, uin
         if ((segments[i].flags&1) && segments[i].address<=ISS_PITCH_SITE &&
             ISS_PITCH_SITE-segments[i].address<=segments[i].size &&
             ISS_PITCH_LENGTH<=segments[i].size-(ISS_PITCH_SITE-segments[i].address)) executable=1;
-    if (strcmp(serial,"CUSA00223") || strcmp(version,"01.07") || !executable ||
+    if (!iss_camera_title_supported(serial,version) || !executable ||
         !iss_pitch_signature(image,size)) {
         puts("Camera pitch safeguard: disabled (title/version or signature mismatch)");return;
     }

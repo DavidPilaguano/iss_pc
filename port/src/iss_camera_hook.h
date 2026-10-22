@@ -11,6 +11,13 @@
 #include <errno.h>
 #include <math.h>
 
+/* Known European merged 1.07 dumps can retain APP_VER 01.00. Instruction signatures
+ * below remain mandatory; these metadata values alone never authorize a patch. */
+static inline int iss_camera_title_supported(const char *serial, const char *version) {
+    return (!strcmp(serial,"CUSA00223") && !strcmp(version,"01.07")) ||
+           (!strcmp(serial,"CUSA00004") && (!strcmp(version,"01.07") || !strcmp(version,"01.00")));
+}
+
 #define ISS_CAMERA_SITE 0x14d943u
 #define ISS_CAMERA_LENGTH 34u
 #define ISS_CAMERA_STUB_SIZE 82u

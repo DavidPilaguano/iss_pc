@@ -24,6 +24,22 @@ class CameraModTests(unittest.TestCase):
         mod_path.start()
         self.addCleanup(mod_path.stop)
 
+    def test_eu_old_metadata_requires_verified_elf(self):
+        import hashlib
+        import prepare
+        import infamous_patches
+        game = Path(self.temp.name) / 'game'
+        (game / 'sce_sys').mkdir(parents=True)
+        (game / 'sce_sys/param.sfo').write_bytes(b'fixture')
+        with mock.patch.object(prepare, 'sfo', return_value={'TITLE_ID': 'CUSA00004'}), \
+             mock.patch.object(infamous_patches, 'read_eboot_elf', return_value=b'fixture'), \
+             mock.patch.object(hashlib, 'sha256') as digest:
+            digest.return_value.hexdigest.return_value = 'b3afd173a379f83e1e408e71fdef22b78f93092d332b79decd48a18a08bfc605'
+            self.assertTrue(run.camera_build_supported(game, '01.00'))
+            digest.return_value.hexdigest.return_value = '0' * 64
+            self.assertFalse(run.camera_build_supported(game, '01.00'))
+        self.assertFalse(run.camera_build_supported(game, '01.06'))
+
     def test_selection_preserves_other_mods_and_defaults_off(self):
         self.assertEqual(set(run.camera_mod_environment().values()), {'1'})
         self.config.write_text(json.dumps({'enabled': ['other/God mode'], 'disabled': []}))

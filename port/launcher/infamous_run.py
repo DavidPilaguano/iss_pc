@@ -82,6 +82,26 @@ def camera_pitch_mod_enabled():
     return camera_mod_enabled()
 
 
+def camera_build_supported(game, app_version):
+    if app_version == '01.07':
+        return True  # Existing catalogue behavior; runtime still verifies title and code.
+    if app_version != '01.00':
+        return False
+    try:
+        from prepare import sfo
+        from infamous_patches import read_eboot_elf
+        import hashlib
+        metadata = sfo((Path(game) / 'sce_sys/param.sfo').read_bytes())
+        if metadata.get('TITLE_ID') != 'CUSA00004':
+            return False
+        elf = read_eboot_elf(game)
+        # The verified 1.07 executable, identical across the tested US/EU dumps.
+        return elf is not None and hashlib.sha256(elf).hexdigest() == \
+            'b3afd173a379f83e1e408e71fdef22b78f93092d332b79decd48a18a08bfc605'
+    except (OSError, ValueError):
+        return False
+
+
 def list_mods(settings):
     """[(key, name, note, enabled)] for the Mods tab: every shadPS4/GoldHEN cheat XML found in
     the mods folder for this game's version, with its current enabled state."""
@@ -91,12 +111,12 @@ def list_mods(settings):
         mods_dir(), app_version, TITLE_IDS, builtin_files=BUILTIN_MODS)
     selected = {key for key, _, _ in mod_patches.external_selection(found, mods_config())}
     rows = [(key, meta.get('Name'), meta.get('Note', ''), key in selected) for key, _, meta in found]
-    if app_version == '01.07':
+    if camera_build_supported(settings['game_dir'], app_version):
         rows.append((CAMERA_MOD_KEY, 'Camera improvements (1.5x + slowdown fix)',
                      'Raises horizontal and vertical camera speed limits by 50% and prevents '
                      'diagonal slowdown at vertical viewing limits with zoom off. '
                      'Zoomed aiming and vertical limits remain unchanged. '
-                     'Requires CUSA00223 1.07. Applies on the next game launch.',
+                     'Requires a verified CUSA00223/CUSA00004 1.07 build. Applies on the next game launch.',
                      camera_mod_enabled()))
     return rows
 
