@@ -3167,6 +3167,23 @@ std::optional<BufferCache::AscArenaPreflight> BufferCache::PrepareArenaForAsc(
     return AscArenaPreflight{Sched().CurrentTick(), mapping_before};
 }
 
+bool BufferCache::PrefaultArena(VAddr device_addr, u32 size) {
+    if (cp_split_enabled || compute_queue || size == 0 || device_addr == 0 ||
+        device_addr > std::numeric_limits<VAddr>::max() - size || !liverpool ||
+        !liverpool->IsCurrentCpThread())
+        return false;
+    const u64 first_block = device_addr >> block_shift;
+    const u64 last_block = (device_addr + size - 1) >> block_shift;
+    if ((first_block >> blocks_per_arena_page_shift) != (last_block >> blocks_per_arena_page_shift))
+        return false;
+    // A GPU producer's bytes need a readback first: left to the command processor's own path.
+    if (HasGpuData(device_addr, size)) return false;
+    const auto* arena = GetArena(first_block, last_block);
+    EnsureResident(arena, first_block, last_block);
+    SynchronizeMemory(arena, device_addr, size, false, false);
+    return true;
+}
+
 std::string BufferCache::DescribePages(VAddr device_addr, u32 size) {
     if (size == 0 || device_addr == 0) {
         return "none";
