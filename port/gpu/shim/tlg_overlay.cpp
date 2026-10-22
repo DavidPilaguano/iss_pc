@@ -646,6 +646,13 @@ void ControlsTab() {
         }
         ImGui::EndTable();
     }
+    ImGui::SeparatorText(TL("Controller", "Controle"));
+    if (BeginRows("##controller")) {
+        CheckRow(TL("Vibration", "Vibração"), s.rumble,
+                 TL("The controller vibrates with the game. Turn it off if you do not want vibration or if it makes the controller misbehave.",
+                    "O controle vibra com o jogo. Desligue se não quiser vibração ou se ela fizer o controle se comportar mal."));
+        ImGui::EndTable();
+    }
     ImGui::SeparatorText(TL("Sensor mode (graffiti)", "Modo sensor (grafite)"));
     if (BeginRows("##sensor")) {
         SliderRow(TL("Graffiti aiming speed", "Velocidade da mira do grafite"), s.sensor_aim, 25, 200, "%d%%",
