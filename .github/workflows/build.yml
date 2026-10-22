@@ -270,8 +270,10 @@ jobs:
             --title "$tag ($(date -u +%Y-%m-%d) · ${short})" --notes-file notes.md
           n=$(gh release view "$tag" --json assets --jq '.assets | length')
           [[ $n -ge 3 ]] || { echo "draft release has $n assets"; exit 1; }
+          # Published as a pre-release: the stable release (1.0) stays Latest, and the launcher's
+          # updater (releases/latest) keeps offering it.
           for try in 1 2 3; do
-            gh release edit "$tag" --draft=false --latest && break
+            gh release edit "$tag" --draft=false --prerelease --latest=false && break
             sleep 10
           done
           [[ $(gh release view "$tag" --json isDraft --jq .isDraft) == false ]]
