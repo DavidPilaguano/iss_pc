@@ -184,6 +184,13 @@ public:
                    : 0;
     }
 
+    /// iss: whether the image `uid` still lives in slot `image_id` (its views not yet destroyed).
+    /// Lock free: native passes pool threads check it before writing a template's views.
+    [[nodiscard]] bool ImageAlive(ImageId image_id, u64 uid) const noexcept {
+        return image_id.index < NumImageGens &&
+               image_uids[image_id.index].load(std::memory_order_acquire) == uid;
+    }
+
     /// Garbage collector tick, one per guest frame (command processor thread).
     [[nodiscard]] u64 GcTick() const noexcept {
         return gc_tick;
@@ -553,6 +560,8 @@ private:
     u64 card_budget_memory = 0;
     /// ISS_GC_BUDGET_MB (the launcher's VRAM budget), 0 when unset.
     u64 forced_gc_budget = 0;
+    /// iss: bytes of the registered images (total_used_memory is the whole device's usage).
+    u64 image_bytes = 0;
     u64 total_used_samplers = 0;
     u64 trigger_gc_samplers = 0;
     u64 pressure_gc_samplers = 0;
@@ -579,6 +588,7 @@ private:
     }
     static constexpr u32 NumImageGens = 1 << 16;
     std::unique_ptr<std::atomic<u32>[]> image_gens{std::make_unique<std::atomic<u32>[]>(NumImageGens)};
+    std::unique_ptr<std::atomic<u64>[]> image_uids{std::make_unique<std::atomic<u64>[]>(NumImageGens)};
     void BumpImageGeneration(ImageId image_id) noexcept {
         if (image_id.index < NumImageGens) {
             image_gens[image_id.index].fetch_add(1, std::memory_order_release);

@@ -7,6 +7,8 @@
 #include <thread>
 #include <unordered_map>
 #include "gpu_blackbox.h"
+#include "guest_heap_census.h"
+#include "native_passes.h"
 #include <cstdio>
 #include <cstdlib>
 #include <xxhash.h>
@@ -1420,7 +1422,10 @@ void TextureCache::RegisterImage(ImageId image_id) {
     BumpGeneration();
     image.flags |= ImageFlagBits::Registered;
     total_used_memory += Common::AlignUp(image.info.guest_size, 1024);
+    image_bytes += Common::AlignUp(image.info.guest_size, 1024);
     image.lru_id = lru_cache.Insert(image_id, gc_tick);
+    if (image_id.index < NumImageGens)
+        image_uids[image_id.index].store(image.image_uid, std::memory_order_release);
     ForEachPage(image.info.guest_address, image.info.guest_size, [this, image_id](u64 page) {
         page_table[page].push_back(image_id);
         page_image_counts[page].fetch_add(1, std::memory_order_release);
@@ -1448,6 +1453,7 @@ void TextureCache::UnregisterImage(ImageId image_id) {
                          image.info.size.height, vk::to_string(image.info.pixel_format).c_str());
     lru_cache.Free(image.lru_id);
     total_used_memory -= Common::AlignUp(image.info.guest_size, 1024);
+    image_bytes -= Common::AlignUp(image.info.guest_size, 1024);
     ForEachPage(image.info.guest_address, image.info.guest_size, [this, image_id](u64 page) {
         const auto page_it = page_table.find(page);
         if (page_it == nullptr) {
@@ -1591,6 +1597,36 @@ void TextureCache::GarbageCollectImages() {
                      (unsigned long long)tex_streak_images.load(),
                      (unsigned long long)(total_used_memory >> 20),
                      (unsigned long long)(trigger_gc_memory >> 20));
+    if (gc_tick % 600 == 0 && instance.CanReportMemoryUsage()) {
+        // Where the VRAM goes: the collector only frees images; the arena (guest memory the
+        // GPU used, resident for good) and the rest (staging, pipelines, swapchain) stay.
+        const u64 usage = instance.GetDeviceMemoryUsage();
+        const u64 arena =
+            buffer_cache.ArenaResidentBytes(false) - buffer_cache.ArenaResidentBytes(true);
+        const u64 known = image_bytes + arena;
+        std::fprintf(stderr,
+                     "VRAM_BREAKDOWN usage=%llu MB budget_now=%llu MB images=%llu MB arena=%llu MB "
+                     "arena_spilled=%llu MB other=%llu MB critical=%llu MB\n",
+                     (unsigned long long)(usage >> 20),
+                     (unsigned long long)(instance.GetDeviceMemoryBudgetNow() >> 20),
+                     (unsigned long long)(image_bytes >> 20), (unsigned long long)(arena >> 20),
+                     (unsigned long long)(buffer_cache.ArenaResidentBytes(true) >> 20),
+                     (unsigned long long)((usage > known ? usage - known : 0) >> 20),
+                     (unsigned long long)(critical_gc_memory >> 20));
+        // What the game holds of its GPU heaps (live) against the span it reached: the arena
+        // can only shrink to the live part.
+        iss::heap_census::Heap h[2];
+        if (iss::heap_census::Read(h)) {
+            for (int i = 0; i < 2; ++i)
+                std::fprintf(stderr,
+                             "HEAP_CENSUS heap=%d live=%llu MB peak=%llu MB span=%llu MB "
+                             "allocs=%llu frees=%llu\n",
+                             i, (unsigned long long)(h[i].live_bytes >> 20),
+                             (unsigned long long)(h[i].peak_bytes >> 20),
+                             (unsigned long long)((h[i].highest - h[i].lowest) >> 20),
+                             (unsigned long long)h[i].allocs, (unsigned long long)h[i].frees);
+        }
+    }
     if (instance.CanReportMemoryUsage()) {
         total_used_memory = instance.GetDeviceMemoryUsage();
         if (gc_tick % 60 == 0) {
@@ -1619,7 +1655,7 @@ void TextureCache::GarbageCollectImages() {
     // tick_accessed_last but never touched the LRU: under memory pressure the collector deleted
     // textures every frame used, and the guest created and uploaded them again (bursts of 5-30
     // new images a frame, +12 ms frame time spikes while moving, 2026-10-17). Such an image is
-    // moved to the LRU's end instead, except when memory is critical (the aggressive pass).
+    // moved to the LRU's end instead, in the aggressive pass too.
     static const bool recent_use = [] {
         const char* p = std::getenv("ISS_GC_RECENT_USE");
         return !p || p[0] != '0';
@@ -1630,7 +1666,14 @@ void TextureCache::GarbageCollectImages() {
         if (num_deletions == 0) {
             return true;
         }
-        if (recent_use && !aggresive && gc_tick >= ticks_to_destroy &&
+        if (!slot_images.is_allocated(image_id) ||
+            False(slot_images[image_id].flags & ImageFlagBits::Registered)) {
+            return false;
+        }
+        // The aggressive pass spares images in use too: deleting them freed nothing (the
+        // guest created and uploaded them again the same frame) and, with the arena alone
+        // above the critical mark, it ran every frame: stutter at 6.2 GB of 6.4 (RX 6600).
+        if (recent_use && gc_tick >= ticks_to_destroy &&
             ticks_to_destroy < gc_scheduler_ticks.size() && slot_images.is_allocated(image_id)) {
             const u64 used_since =
                 gc_scheduler_ticks[(gc_tick - ticks_to_destroy) % gc_scheduler_ticks.size()];
@@ -1825,8 +1868,13 @@ void TextureCache::DeleteImage(ImageId image_id) {
         }
     }
 
+    // Native passes templates may hold this image's views: clearing its uid makes their pool jobs miss,
+    // and the views go only after the jobs that may have checked before it (native_passes.h).
+    if (image_id.index < NumImageGens) image_uids[image_id.index].store(0);
+    const u64 recording_ticket = iss::native_passes::RecordingTicket();
     // Reclaim image and any image views it references.
-    scheduler.DeferOperation([this, image_id] {
+    scheduler.DeferOperation([this, image_id, recording_ticket] {
+        iss::native_passes::WaitRecordingBefore(recording_ticket);
         Image& image = slot_images[image_id];
         for (auto& backing : image.backing_images) {
             for (const ImageViewId image_view_id : backing.image_view_ids) {
