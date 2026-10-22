@@ -27,7 +27,10 @@ SETTING_ROWS = {
 }
 DISPLAY_MODES = ('Windowed', 'Borderless', 'Fullscreen')
 OVERLAY_IDS = tuple(i.id for i in backports_table.MENU if i.tab == 'Overlay')
+# Two-value choices shown here as a switch: id -> (value when off, value when on, label key).
+SWITCH_CHOICES = {'TLG_RENDERER': ('1', '2', 'gfx_renderer_v2')}
 SECTIONS = (
+    ('gfx_sec_renderer', ('TLG_RENDERER', 'TLG_NATIVE_PASSES')),
     ('gfx_sec_image', ('s:display_mode', 's:vsync', 'menu:fsr1', 'menu:rcas', 'menu:rcas_strength',
                         'TLG_BARRIER_MERGE')),
     ('gfx_sec_rate', ('menu:fps_limit', 'menu:frames_queued')),
@@ -146,12 +149,18 @@ class Graphics(QObject):
                        value=int(value), valueText=f'{int(value)}{item.unit}')
             if rid == 'menu:rcas_strength':
                 row['disabled'] = backports_table.effective(gfxlogic.item_by_id('menu:rcas'), states) != '1'
+        if rid == 'TLG_NATIVE_PASSES':
+            # Native passes only exist in renderer v2.
+            row['disabled'] = backports_table.effective(gfxlogic.item_by_id('TLG_RENDERER'), states) != '2'
         elif item.vtype == 'float':
             step = backports_table.FLOAT_STEPS.get(item.key, 0.05)
             decimals = 0 if step >= 1 else 1 if step >= 0.1 else 2 if step >= 0.01 else 3
             number = float(value)
             row.update(control='slider', lo=item.lo, hi=item.hi, step=step, unit=item.unit, value=number,
                        decimals=decimals, valueText=f'{number:.{decimals}f}{item.unit}')
+        elif rid in SWITCH_CHOICES:
+            _, on_value, label_key = SWITCH_CHOICES[rid]
+            row.update(label=self.t(label_key), on=value == on_value)
         elif item.vtype == 'choice':
             options = [(v, t.pair((en, pt)) + (f' ({self.t("exp_default")})' if v == item.default else ''))
                        for v, en, pt in item.choices]
@@ -187,6 +196,9 @@ class Graphics(QObject):
             tlg_run.save_settings(self.settings)
             self.rebuild()
         else:
+            if rid in SWITCH_CHOICES:
+                off_value, on_value, _ = SWITCH_CHOICES[rid]
+                value = on_value if value == '1' else off_value
             self.backend.setFix(rid, value)      # saves tlg.ini, refreshes the chips; rebuild follows
 
     @Slot(str)
