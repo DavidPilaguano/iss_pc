@@ -217,7 +217,8 @@ jobs:
 
   beta:
     # A manual run with "beta" on a branch other than main: beta.yml builds, tests and publishes a
-    # pre-release of that branch (never Latest, no Discord post). The jobs above stay skipped.
+    # pre-release of that branch (never Latest; posted only to the Discord beta channels, never
+    # #chat-geral). The jobs above stay skipped.
     if: github.event_name == 'workflow_dispatch' && inputs.beta == true && github.ref != 'refs/heads/main'
     permissions:
       contents: write
