@@ -6,6 +6,8 @@
 #   - push a tag beta-<anything> on the commit to test (works on any branch that has this file):
 #       git fetch origin && git tag beta-2026.10.23-vram origin/developer && git push origin beta-2026.10.23-vram
 #   - Actions > Beta > Run workflow, with the branch (needs this file on the default branch).
+# A new beta is announced only in #beta-tester and #beta-teste-chat (DISCORD_BETA_WEBHOOK,
+# DISCORD_BETA_CHAT_WEBHOOK), never in #chat-geral.
 # No game or console file is ever built in or uploaded.
 name: Beta
 
@@ -235,6 +237,7 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Publish beta
+        id: publish
         env:
           BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || '' }}
         run: |
@@ -272,6 +275,49 @@ jobs:
               gh release edit "$tag" --draft=false --prerelease --latest=false && break
               sleep 10
             done
+            # Only a new beta is announced: a re-run that replaces the packages stays quiet.
+            echo "published=true" >> "$GITHUB_OUTPUT"
           fi
           [[ $(gh release view "$tag" --json isPrerelease --jq .isPrerelease) == true ]]
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "from=$from" >> "$GITHUB_OUTPUT"
           echo "Published $GITHUB_SERVER_URL/$GH_REPO/releases/tag/$tag"
+      - name: Notify Discord (beta channels only)
+        # Betas go only to #beta-tester and #beta-teste-chat, never to #chat-geral (that one is
+        # build.yml's DISCORD_RELEASE_WEBHOOK, for stable releases). A Discord failure never fails the beta.
+        if: steps.publish.outputs.published == 'true'
+        continue-on-error: true
+        env:
+          BETA_WEBHOOK: ${{ secrets.DISCORD_BETA_WEBHOOK }}
+          BETA_CHAT_WEBHOOK: ${{ secrets.DISCORD_BETA_CHAT_WEBHOOK }}
+          TAG: ${{ steps.publish.outputs.tag }}
+          FROM: ${{ steps.publish.outputs.from }}
+          GAME: InFamous Second Son
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD); short=${sha::7}; color=15105570
+          url="$GITHUB_SERVER_URL/$GH_REPO/releases/tag/$TAG"
+          downloads=$(gh release view "$TAG" --json assets \
+            --jq '[.assets[] | select(.name != "SHA256SUMS") | "• [\(.name)](\(.url))"] | join("\n")')
+          # The "## Novidades" section of the notes, as in build.yml; without it, a plain line.
+          news=$(gh release view "$TAG" --json body --jq .body | tr -d '\r' |
+            awk '/^## Novidades/ { on = 1; next } /^## / { on = 0 } on' |
+            sed -e '/./,$!d' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}')
+          [[ -n $news ]] || news="- Build $short"
+          payload=$(jq -n \
+            --arg title "🧪 $GAME: nova beta ($TAG)" --arg url "$url" \
+            --arg intro "Build de teste de $FROM (commit $short). Pode ter bugs: contem tudo no <#1562973344922603602>." \
+            --arg news "$news" --arg dl "$downloads" --arg commit "Beta · commit $short" \
+            --argjson color "$color" '
+            (if ($news | length) > 3300
+             then ($news[:3300] | sub("\n[^\n]*$"; "")) + "\n… [notas completas](\($url))"
+             else $news end) as $n
+            | {username: "Betas", allowed_mentions: {parse: []},
+               embeds: [{title: $title, url: $url, description: ($intro + "\n\n" + $n), color: $color,
+                fields: [{name: "Downloads", value: $dl}], footer: {text: $commit}}]}')
+          sent=0
+          for hook in "${BETA_WEBHOOK:-}" "${BETA_CHAT_WEBHOOK:-}"; do
+            [[ -n $hook ]] || continue
+            curl -fsS -H 'Content-Type: application/json' -d "$payload" "$hook" && sent=$((sent + 1))
+          done
+          (( sent > 0 )) || echo "DISCORD_BETA_WEBHOOK / DISCORD_BETA_CHAT_WEBHOOK not set"
