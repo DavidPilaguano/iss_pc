@@ -5,7 +5,8 @@
 # Two ways to start one:
 #   - push a tag beta-<anything> on the commit to test (works on any branch that has this file):
 #       git fetch origin && git tag beta-2026.10.23-vram origin/developer && git push origin beta-2026.10.23-vram
-#   - Actions > Beta > Run workflow, with the branch (needs this file on the default branch).
+#   - Actions > Build > Run workflow: pick the branch and tick "beta" (build.yml calls this file).
+#   - Actions > Beta > Run workflow, with the branch (once this file is on the default branch).
 # A new beta is announced only in #beta-tester and #beta-teste-chat (DISCORD_BETA_WEBHOOK,
 # DISCORD_BETA_CHAT_WEBHOOK), never in #chat-geral.
 # No game or console file is ever built in or uploaded.
@@ -14,6 +15,11 @@ name: Beta
 on:
   push:
     tags: ['beta-*']
+  workflow_call:
+    inputs:
+      branch:
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
       branch:
