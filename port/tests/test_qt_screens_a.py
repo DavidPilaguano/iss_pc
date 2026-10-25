@@ -254,7 +254,7 @@ VkPhysicalDeviceMemoryProperties:
             for item_id, value in items.items():       # a value the table accepts (not silently dropped)
                 item = gfxlogic.item_by_id(item_id)
                 self.assertIn(value, [item.default] + [c[0] for c in item.choices] + ['0', '1'], item_id)
-        self.assertEqual(('rec1', 'current', 'amd', 'rx580', 'seco', 'apolar_amd', 'apolar_rtx', 'apolar_gtx',
+        self.assertEqual(('spycatm', 'rec1', 'current', 'amd', 'rx580', 'seco', 'apolar_amd', 'apolar_rtx', 'apolar_gtx',
                           'renderer_v2_8gb', 'renderer_v2_12gb', 'renderer_v2', 'renderer_v2_native', 'performance', 'balanced', 'quality', 'ps4'),
                          tuple(p[0] for p in gfxlogic.PRESETS))
 
@@ -557,6 +557,20 @@ class ControllerTests(unittest.TestCase):
         ini = self.ini_text()
         self.assertNotIn('rcas=0', ini)               # balanced: sharpening back to its default (on)
         self.assertIn('bp07=1', ini)
+
+    def test_spycatm_applies_real_hardware_settings_and_matches(self):
+        self.graphics.applyPreset('spycatm')
+        self.assertEqual(self.backend.settings['gpu_readbacks'], '2')
+        self.assertFalse(self.backend.settings['eager_readback'])
+        self.assertFalse(self.backend.settings['vsync'])
+        self.assertEqual(self.backend.settings['vram_budget_mb'], 3000)
+        self.assertFalse(self.backend.settings['vram_auto'])
+        self.assertIn('lod_scale=0.85', self.ini_text())
+        self.assertIn('frames_queued=2', self.ini_text())
+        self.assertIn('adv_shared_pipeline_cache=1', self.ini_text())
+        self.assertIn('adv_shader_on_demand=1', self.ini_text())
+        self.assertEqual(self.graphics.exportName, 'SpyCatM')
+        self.assertTrue(next(p for p in self.graphics.presets if p['id'] == 'spycatm')['active'])
 
     def test_applying_a_full_preset_sends_a_changed_draw_distance_back_to_native(self):
         for preset in ('current', 'amd'):

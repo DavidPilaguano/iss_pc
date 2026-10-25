@@ -22,6 +22,8 @@
   "gfx_preset_balanced_what": {"en": "Everything as recommended: VSync on, no frame cap, shaders compiled in the background.", "pt": "Tudo como recomendado: VSync ligado, sem limite de FPS, shaders compilados em segundo plano."},
   "gfx_preset_quality_what": {"en": "FSR 1 on, shaders compiled before drawing and up-to-date GPU reads. Cleanest image; may hitch in new areas.", "pt": "FSR 1 ligado, shaders compilados antes de desenhar e leituras da GPU em dia. Imagem mais limpa; pode engasgar em áreas novas."},
   "gfx_preset_ps4_what": {"en": "30 FPS like the PS4, no FSR or sharpening, nothing deferred. The image the console showed.", "pt": "30 FPS como no PS4, sem FSR nem nitidez, nada adiado. A imagem que o console mostrava."},
+  "gfx_preset_spycatm": {"en": "SpyCatM", "pt": "SpyCatM"},
+  "gfx_preset_spycatm_what": {"en": "RTX 3050 Ti Laptop 4 GB / i7-12700H. Precise effects, LOD 0.85x, original texture sharpness, shared cache and 128 MB transfer retention. VSync off, two queued frames. FPS target not guaranteed.", "pt": "RTX 3050 Ti Laptop 4 GB / i7-12700H. Efeitos precisos, LOD 0.85x, nitidez original, cache compartilhado e retenção de transferências de 128 MB. VSync desligado, dois quadros na fila. Sem garantia de FPS."},
   "gfx_preset_current": {"en": "RECOMMENDED 2", "pt": "RECOMENDADO 2"},
   "gfx_preset_current_what": {"en": "The maintainer's setup with the game's native draw distance: exact GPU reads, read-ahead off, no FSR 1 or sharpening, and the driver pipeline cache.", "pt": "A configuração do autor com o alcance de visão nativo do jogo: leituras exatas da GPU, leitura adiantada desligada, sem FSR 1 nem nitidez e o cache de pipelines do driver."},
   "gfx_preset_rec1": {"en": "RECOMMENDED 1", "pt": "RECOMENDADO 1"},
