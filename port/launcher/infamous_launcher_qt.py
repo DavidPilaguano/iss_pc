@@ -41,6 +41,10 @@ def main():
             if os.environ.get('ISS_SELFTEST_OUT'):
                 Path(os.environ['ISS_SELFTEST_OUT']).write_text(f'selftest FAILED: {error!r}\n', encoding='utf-8')
         sys.exit(code)
+    # A normal desktop launch must not inherit an invisible platform from a previous
+    # self-test. --selftest above deliberately retains its offscreen configuration.
+    if os.name == 'nt' and os.environ.get('QT_QPA_PLATFORM', '').split(':', 1)[0] in ('offscreen', 'minimal'):
+        os.environ.pop('QT_QPA_PLATFORM', None)
     os.environ.setdefault('QT_QUICK_CONTROLS_STYLE', 'Basic')  # we style the controls ourselves
     try:
         from qt.app import App
