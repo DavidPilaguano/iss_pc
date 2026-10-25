@@ -275,9 +275,11 @@ public:
     /// iss: true when this stage may be created with a required subgroup size of 64: the feature
     /// must be on, the device must support 64 lanes, and the stage must be listed in
     /// requiredSubgroupSizeStages (VUID-VkPipelineShaderStageCreateInfo-pNext-02755). AMD's
-    /// driver lists only compute (xgl GetPhysicalDeviceSubgroupSizeControlProperties), so the
-    /// vertex/fragment stages of every graphics pipeline were invalid there. Same rule as the
-    /// first renderer (port/gpu, b37381d).
+    /// Windows driver never lists the vertex stage: RDNA3/4 report 0xf0 (fragment, compute,
+    /// task, mesh), RDNA2 and Polaris 0x20 (compute only), so the vertex (and on RDNA2 the
+    /// fragment) stage of every graphics pipeline was invalid there. Graphics stages need no
+    /// wave64 lowering, as on NVIDIA's 32 lanes. Same rule as the first renderer (port/gpu,
+    /// b37381d).
     bool IsRequiredSubgroupSize64ValidFor(vk::ShaderStageFlagBits stage) const {
         return IsSubgroupSize64Supported() && bool(vk13_props.requiredSubgroupSizeStages & stage);
     }
