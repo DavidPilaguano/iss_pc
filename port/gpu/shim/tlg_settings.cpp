@@ -11,10 +11,13 @@
 #include <cstring>
 #include <string>
 #include <string_view>
+#include <map>
 
 namespace TlgSettings {
 
 namespace {
+
+std::map<std::string, std::string> disk_values;
 
 const char* Path() {
     const char* env = std::getenv("TLG_CONFIG");
@@ -225,6 +228,7 @@ Values& Get() {
 
 void Load() {
     auto& v = Get();
+    disk_values.clear();
     if (FILE* file = std::fopen(Path(), "r")) {
         char line[1024]; // key_map can be long
         while (std::fgets(line, sizeof(line), file)) {
@@ -234,6 +238,7 @@ void Load() {
             if (text.empty() || text[0] == '#' || eq == std::string::npos) {
                 continue;
             }
+            disk_values[text.substr(0, eq)] = text.substr(eq + 1);
             Set(v, text.substr(0, eq), text.substr(eq + 1));
         }
         std::fclose(file);
@@ -281,6 +286,59 @@ void Load() {
                                                  : v.engine_fps.load();
     v.startup_deferred_readback = v.deferred_readback;
     v.startup_stale_readback = v.stale_readback;
+}
+
+bool ReloadLive() {
+    FILE* file = std::fopen(Path(), "r");
+    if (!file) return false;
+    std::map<std::string, std::string> incoming;
+    char line[1024];
+    while (std::fgets(line, sizeof(line), file)) {
+        std::string text{line};
+        text.erase(text.find_last_not_of(" \t\r\n") + 1);
+        const auto eq = text.find('=');
+        if (!text.empty() && text[0] != '#' && eq != std::string::npos)
+            incoming[text.substr(0, eq)] = text.substr(eq + 1);
+    }
+    const bool valid = !std::ferror(file);
+    std::fclose(file);
+    if (!valid) return false;
+    struct LiveKey { const char* key; const char* fallback; const char* env; };
+    static const LiveKey keys[] = {
+        {"lod_scale", "1", "TLG_LOD_SCALE"}, {"region_lod", "1", "TLG_REGION_LOD"},
+        {"region_fade", "1", "TLG_REGION_FADE"}, {"near_clip", "10", "TLG_NEAR_CLIP"},
+        {"far_clip", "10000000", "TLG_FAR_CLIP"}, {"mip_lod_bias", "0", "TLG_MIP_LOD_BIAS"},
+        {"lod_bands", "400,750,1500,3500,6000,15000", "TLG_LOD_BANDS"},
+        {"fps_limit", "0", "TLG_FPS_LIMIT"}, {"frames_queued", "1", "TLG_FRAMES_AHEAD"},
+        {"fsr1", "0", "TLG_FSR1"}, {"rcas", "1", "TLG_RCAS"}, {"rcas_strength", "60", ""},
+        {"display_mode", "windowed", "TLG_FULLSCREEN"},
+        {"vsync", "1", "TLG_VSYNC"}, {"show_fps", "0", "TLG_SHOW_FPS"},
+        {"sensor_aim", "100", "TLG_SENSOR_AIM"},
+        {"overlay_fps", "1", ""}, {"overlay_frametime", "1", ""},
+        {"overlay_upscaler", "0", ""}, {"overlay_gpu", "1", ""},
+        {"overlay_cpu", "0", ""}, {"overlay_ram", "0", ""}, {"overlay_vram", "1", ""},
+        {"overlay_scale", "100", ""}, {"overlay_corner", "1", ""},
+        {"overlay_opacity", "50", ""}, {"overlay_layout", "0", ""},
+    };
+    bool changed = false;
+    for (const auto& entry : keys) {
+        const auto before = disk_values.find(entry.key), after = incoming.find(entry.key);
+        if ((before == disk_values.end() && after == incoming.end()) ||
+            (before != disk_values.end() && after != incoming.end() && before->second == after->second))
+            continue;
+        if (*entry.env) {
+            if (const char* forced = std::getenv(entry.env); forced && *forced) {
+                std::printf("Settings live: %s remains overridden by %s=%s\n", entry.key, entry.env, forced);
+                continue;
+            }
+        }
+        const auto value = after == incoming.end() ? std::string{entry.fallback} : after->second;
+        Set(Get(), entry.key, value);
+        std::printf("Settings live: %s=%s\n", entry.key, value.c_str());
+        changed = true;
+    }
+    disk_values = std::move(incoming);
+    return changed;
 }
 
 bool GraphicsNeedRestart() {

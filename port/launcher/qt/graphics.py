@@ -201,6 +201,11 @@ class Graphics(QObject):
             else:
                 self.settings[key] = value
             tlg_run.save_settings(self.settings)
+            if key in ('display_mode', 'vsync', 'show_fps'):
+                live_value = str(self.settings[key]).lower() if key == 'display_mode' else str(int(bool(self.settings[key])))
+                path = tlg_run.user_dir() / 'tlg.ini'
+                path.parent.mkdir(parents=True, exist_ok=True)
+                backports_table.write_ini(path, {key: live_value})
             self.rebuild()
         else:
             if rid in SWITCH_CHOICES:

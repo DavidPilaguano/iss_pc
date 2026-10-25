@@ -744,6 +744,13 @@ void Presenter::PresentLoadingFrame() {
 }
 
 void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame) {
+    // External launcher edits apply even with the performance overlay/menu hidden.
+    static auto next_settings_poll = std::chrono::steady_clock::time_point{};
+    const auto settings_now = std::chrono::steady_clock::now();
+    if (settings_now >= next_settings_poll) {
+        next_settings_poll = settings_now + std::chrono::milliseconds(250);
+        TlgSettings::ReloadLive();
+    }
     // Free the frame for reuse
     const auto free_frame = [&] {
         if (!is_reusing_frame) {

@@ -17,6 +17,8 @@ by the game itself. A switch the player never touched changes nothing.
 All values are strings, as in the ini: '0'/'1' for on/off.
 """
 import os
+import tempfile
+import time
 from collections import namedtuple
 from pathlib import Path
 
@@ -87,13 +89,13 @@ MENU = [
            'Distância em que a luz, a névoa e o LOD de uma região se misturam ao entrar nela (multiplicador).'),
           lo=0.25, hi=4.0, unit='x'),
     _menu('View', 'near_clip', 'float', '10', ('Near clip (NEAR_CLIP)', 'Plano próximo (NEAR_CLIP)'),
-          ('Default near plane of the cameras (the game uses 10). Lower shows objects closer to the camera, '
+          ('Default near plane for new cameras (the game uses 10). Existing cameras or regions can keep their own value. Lower shows objects closer to the camera, '
            'higher reduces depth flicker far away.',
-           'Plano próximo padrão das câmeras (o jogo usa 10). Menor mostra objetos mais perto da câmera, '
+           'Plano próximo padrão de câmeras novas (o jogo usa 10). Câmeras existentes ou regiões podem manter seu próprio valor. Menor mostra objetos mais perto da câmera, '
            'maior reduz o tremido de profundidade ao longe.'), lo=1.0, hi=100.0),
     _menu('View', 'far_clip', 'float', '10000000', ('Far clip (FAR_CLIP)', 'Plano distante (FAR_CLIP)'),
-          ('Default far plane of the cameras (the game uses 10000000, unlimited). Lower cuts the view.',
-           'Plano distante padrão das câmeras (o jogo usa 10000000, sem limite). Menor corta a visão.'),
+          ('Default far plane for new cameras (the game uses 10000000). Existing cameras or regions can keep their own value. Lower cuts distant visibility; this is not a global streaming limit.',
+           'Plano distante padrão de câmeras novas (o jogo usa 10000000). Câmeras existentes ou regiões podem manter seu próprio valor. Menor corta a visão; não é um limite global de streaming.'),
           lo=1000.0, hi=10000000.0),
     _menu('View', 'mip_lod_bias', 'float', '0', ('Texture LOD bias (MipLodBias)', 'Bias de LOD das texturas (MipLodBias)'),
           ('Negative: sharper textures at a distance (more shimmer, a little more GPU). Positive: blurrier.',
@@ -455,4 +457,21 @@ def write_ini(path, updates):
             out.append(line)
     out += [f'{k}={v}' for k, v in updates.items() if v is not None and k not in seen]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('\n'.join(out) + '\n', encoding='utf-8')
+    # The running game polls this file: never expose a truncated/partially written INI.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
+                                         prefix='.' + path.name + '-', suffix='.tmp', delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write('\n'.join(out) + '\n')
+        for attempt in range(5):
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.01)  # Windows: a renderer read may briefly hold the old file open.
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)

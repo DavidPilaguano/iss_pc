@@ -177,6 +177,8 @@ int RenderPreset();
 bool ResolutionNeedsRestart();
 /// A startup graphics option differs from the one this launch started with.
 bool GraphicsNeedRestart();
+/// Reload externally edited live keys only; preserve startup state and explicit overrides.
+bool ReloadLive();
 /// Writes the file (menu changes).
 void Save();
 

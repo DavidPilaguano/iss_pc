@@ -3,6 +3,7 @@ import re
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from paths import ROOT
@@ -143,6 +144,35 @@ class StatesTest(unittest.TestCase):
             path.write_text('# c\nvsync=1\nbp01=0\nbp02=0\n', encoding='utf-8')
             t.write_ini(path, {'bp01': None, 'bp03': '0', 'bp02': '0'})
             self.assertEqual(path.read_text(encoding='utf-8'), '# c\nvsync=1\nbp02=0\nbp03=0\n')
+
+
+class AtomicIniTest(unittest.TestCase):
+    def test_retries_a_temporary_windows_reader_lock(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'tlg.ini'
+            path.write_text('lod_scale=1\n', encoding='utf-8')
+            replace = t.os.replace
+            calls = []
+            def busy_once(source, destination):
+                calls.append(1)
+                if len(calls) == 1:
+                    raise PermissionError('reader still open')
+                return replace(source, destination)
+            with mock.patch.object(t.os, 'replace', side_effect=busy_once), mock.patch.object(t.time, 'sleep'):
+                t.write_ini(path, {'lod_scale': '0.6'})
+            self.assertEqual(path.read_text(), 'lod_scale=0.6\n')
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(list(Path(folder).iterdir()), [path])
+
+    def test_failed_replace_keeps_the_previous_complete_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'tlg.ini'
+            path.write_text('lod_scale=1\n', encoding='utf-8')
+            with mock.patch.object(t.os, 'replace', side_effect=PermissionError('locked')), mock.patch.object(t.time, 'sleep'):
+                with self.assertRaises(PermissionError):
+                    t.write_ini(path, {'lod_scale': '0.6'})
+            self.assertEqual(path.read_text(), 'lod_scale=1\n')
+            self.assertEqual(list(Path(folder).iterdir()), [path])
 
 
 class RecommendedTest(unittest.TestCase):

@@ -22,6 +22,9 @@ rama local `developer`. Cambios del fork preparados el 25 de octubre de 2026:
   alternos y menor frecuencia de consultas rutinarias del recolector. Véase
   [ZONE_STREAMING.md](port/docs/ZONE_STREAMING.md) para la procedencia técnica,
   las pruebas y los límites de estos cambios.
+- Conexión de ajustes en vivo del launcher al runtime, escrituras atómicas del INI
+  y accesos locales que respetan la configuración editable. Ver
+  [LAUNCHER_SETTINGS.md](port/docs/LAUNCHER_SETTINGS.md).
 
 El objetivo de 8 GB y 30 FPS estables **no está demostrado**. Los resultados medidos,
 las condiciones y las limitaciones están en

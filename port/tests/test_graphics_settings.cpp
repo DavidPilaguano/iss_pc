@@ -123,6 +123,28 @@ int main() {
     TlgSettings::Load();
     assert(v.iss_native_ui_16_9);
     assert(Read(path).find("iss_native_ui_16_9=1\n")!=std::string::npos);
+    // External launcher changes reach live values, without reinitializing startup options.
+    const int engine_before_reload = v.engine_fps;
+    const int startup_before_reload = v.startup_engine_fps;
+    {
+        std::ofstream out(path);
+        out << "lod_scale=0.6\nregion_lod=0.25\nregion_fade=0.8\nnear_clip=12\nfar_clip=1418000\n"
+               "mip_lod_bias=0.5\nfps_limit=24\nfsr1=1\nrcas_strength=40\nengine_fps=60\n";
+    }
+    assert(TlgSettings::ReloadLive());
+    assert(v.lod_scale == 0.6f && v.region_lod == 0.25f && v.region_fade == 0.8f);
+    assert(v.near_clip == 12 && v.far_clip == 1418000 && v.mip_lod_bias == 0.5f);
+    assert(v.fps_limit == 24 && v.fsr1 && v.rcas_strength == 40);
+    assert(v.engine_fps == engine_before_reload && v.startup_engine_fps == startup_before_reload);
+    assert(!TlgSettings::ReloadLive());
+    SetEnv("TLG_LOD_SCALE", "0.9");
+    TlgSettings::Load();
+    { std::ofstream out(path); out << "lod_scale=0.2\n"; }
+    TlgSettings::ReloadLive();
+    assert(v.lod_scale == 0.9f);
+    SetEnv("TLG_LOD_SCALE", "");
+    { std::ofstream out(path); out << "# reset to defaults\n"; }
+    assert(TlgSettings::ReloadLive() && v.lod_scale == 1.0f);
     std::remove(path);
     std::puts("PASS: graphics settings");
 }
