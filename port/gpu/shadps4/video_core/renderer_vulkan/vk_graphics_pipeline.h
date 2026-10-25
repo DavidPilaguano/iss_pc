@@ -37,7 +37,7 @@ struct PipelineCreateInfoBlock;
 /// tlg: compiler threads that build a graphics pipeline the driver's cache did not have.
 struct GraphicsBuilder {
     AsyncCompiler* compiler;
-    std::span<const vk::UniquePipelineCache> caches; ///< one per compiler thread
+    std::span<const vk::PipelineCache> caches; ///< borrowed handle per compiler thread
 };
 
 /// tlg: TLG_GFX_DEFERRED_BIND (default off, vk_graphics_pipeline.cpp): a pipeline the driver's

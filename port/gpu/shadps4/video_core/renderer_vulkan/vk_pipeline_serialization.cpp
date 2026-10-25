@@ -1178,6 +1178,7 @@ void PipelineCache::WarmUp(const std::function<void(u32, u32)>& progress) {
 
 void PipelineCache::StartOnDemand() {
     CheckCacheProfile();
+    UseDefaultPipelineWait();
     Storage::DataBase::Instance().FinishPreload();
     std::printf("Pipeline startup: on demand, no bulk warm-up\n");
 }

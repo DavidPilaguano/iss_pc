@@ -1832,12 +1832,16 @@ void TextureCache::GarbageCollectImages() {
             const char* env = std::getenv("TLG_GC_BUDGET_MB");
             return env ? std::strtoull(env, nullptr, 10) << 20 : 0;
         }();
-        if (instance.IsIntegrated() || forced_budget) {
+        const bool small_discrete = !instance.IsIntegrated() &&
+                                    instance.GetTotalMemoryBudget() <= 4_GB;
+        if (instance.IsIntegrated() || forced_budget || small_discrete) {
             // An integrated GPU keeps following the driver's current budget under a forced one:
             // the launcher always forces 3500 MB, more than most integrated GPUs are given, and
             // the collector then aimed above what the driver allowed (#72, #75, #199).
             u64 budget = forced_budget;
-            if (instance.IsIntegrated()) {
+            // A 4 GiB discrete GPU can lose budget to the desktop and other apps too.
+            // A launcher limit must never override a smaller current driver budget.
+            if (instance.IsIntegrated() || small_discrete) {
                 const u64 now = instance.GetDeviceMemoryBudgetNow();
                 budget = budget && now ? std::min(budget, now) : (budget ? budget : now);
             }

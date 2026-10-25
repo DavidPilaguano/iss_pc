@@ -89,8 +89,17 @@ Findings, in the order they were fixed:
    which keeps the fix for UI flicker (the guest reused buffers before deferred copies ran).
 2. Copies then ran at 0.2–0.4 GB/s per thread, almost all in the kernel: the first CPU access
    to a new staging block makes the kernel allocate and clear it (~2 ms per 16 MiB), and the
-   staging pool freed blocks after 3 s idle, between streaming bursts. It now keeps 512 MiB
-   (`TLG_STAGING_KEEP_MB`), frees the rest after 30 s and populates 128 MiB at startup.
+   staging pool freed blocks after 3 s idle, between streaming bursts. The RAM staging caches
+   now share a 128 MiB retention budget (`TLG_STAGING_KEEP_MB`, 0–2048), including upload rings,
+   readback rings and dedicated host buffers. Previously each ring could retain 512 MiB and
+   dedicated buffers were outside that budget. Completed excess is released after 5 seconds
+   without reuse; dedicated buffers expire after 30 seconds even below budget. These are
+   steady-clock seconds, independent of FPS (the old 3000-frame timeout was 100–150 seconds
+   at 20–30 FPS). In-flight and CPU-held deferred readbacks are never freed, so active
+   transfers may exceed the budget. Startup populates at most 128 MiB and respects smaller
+   budgets, including zero. Explicit performance presets that select 256/512 MiB still win.
+   A lower budget trades RAM retention for possible allocations during later streaming bursts;
+   compare `TLG_STAGING_KEEP_MB=128` and `512` on the same route before choosing a preset.
 3. Write faults: a 256 KiB unprotect window (`TLG_FAULT_WINDOW`) halves them again.
    `TLG_UFFD=1` tracks writes with userfaultfd write-protection instead of mprotect (no
    address-space write lock, no mapping splits); read protection for readbacks still uses

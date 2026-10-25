@@ -14,7 +14,7 @@ Rectangle {
         { key: "controls", label: "nav_controls" }, { key: "fixes", label: "nav_fixes" },
         { key: "saves", label: "nav_saves" }, { key: "guides", label: "nav_guides" },
         { key: "support", label: "nav_support" }, { key: "updates", label: "nav_updates" },
-        { key: "advanced", label: "nav_advanced" }, { key: "mods", label: "nav_mods" } ]
+        { key: "advanced", label: "nav_advanced" }, { key: "mods", label: "nav_mods" }, { key: "equipment", label: "Mi equipo" } ]
 
     Column {
         x: 16; y: 22; width: parent.width - 33; spacing: 3
@@ -33,9 +33,10 @@ Rectangle {
             model: root.entries
             NavButton {
                 width: parent.width
-                label: Theme.tr(modelData.label)
-                iconPath: Theme.icons[modelData.key]
-                accent: Theme.accents[modelData.key]
+                height: 40
+                label: modelData.key === "equipment" ? "Mi equipo" : Theme.tr(modelData.label)
+                iconPath: Theme.icons[modelData.key] || Theme.icons.support
+                accent: Theme.accents[modelData.key] || Theme.cyan
                 current: root.current === index
                 badge: modelData.key === "updates" && Updates.available
                 onClicked: root.pick(index)

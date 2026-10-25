@@ -212,8 +212,11 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
                               EmulatorSettings.IsPipelineCacheEnabled();
     const bool capture_only = EmulatorSettingsImpl::Flag("TLG_PIPELINE_BINARY_ISOLATED", false) &&
                               EmulatorSettingsImpl::Flag("TLG_PIPELINE_CAPTURE_ONLY", false);
+    // The per-program SPIR-V loader also works without pipeline-binary extensions.
+    // Low-RAM sessions need only the scene's shaders, rather than a whole-game warm-up.
+    const bool memory_saving = EmulatorSettingsImpl::Flag("TLG_SHADER_ON_DEMAND", false);
     if (UseOnDemandPipelines(binary_cache, instance.GetPipelineBinaryGlobalKey().keySize != 0,
-                            capture_only)) {
+                            capture_only, memory_saving)) {
         rasterizer->GetPipelineCache().StartOnDemand();
         return;
     }

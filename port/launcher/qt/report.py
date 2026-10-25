@@ -333,6 +333,21 @@ def gpu_info(run=subprocess.run, env=None):
     best = devices[0]
     driver = ' '.join(x for x in (best.get('driverName'), best.get('driverInfo') or best.get('driverVersion')) if x)
     vendor = {'0x10de': 'NVIDIA', '0x1002': 'AMD', '0x8086': 'Intel'}.get(best.get('vendorID', '').lower(), '')
+    if vendor == 'NVIDIA' and not best.get('vram_gb'):
+        # Full vulkaninfo can time out on hybrid laptops. Ask the installed driver for
+        # physical VRAM rather than presenting shared system memory as video memory.
+        try:
+            memory = run(['nvidia-smi', '--query-gpu=name,memory.total',
+                          '--format=csv,noheader,nounits'], stdin=subprocess.DEVNULL,
+                         capture_output=True, text=True, timeout=3, env=env,
+                         creationflags=flags).stdout
+            for line in memory.splitlines():
+                name, size = line.rsplit(',', 1)
+                if name.strip() == best['deviceName']:
+                    best['vram_gb'] = float(size.strip()) / 1024
+                    break
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
     api = re.match(r'(\d+\.\d+)', best.get('apiVersion', ''))
     return {'name': best['deviceName'], 'driver': driver, 'vulkan': api.group(1) if api else '', 'vendor': vendor,
             'type': best.get('deviceType', '').replace('PHYSICAL_DEVICE_TYPE_', '').lower(),

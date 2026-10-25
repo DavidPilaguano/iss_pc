@@ -268,6 +268,9 @@ private:
     CompilerPool<Shader::Pools> compiler_pools{8};
     std::unique_ptr<AsyncCompiler> compiler, capture_compiler;
     std::vector<vk::UniquePipelineCache> worker_pipeline_caches;
+    // Borrowed handles: one main cache in shared mode, separate owners above otherwise.
+    // Fixed before compiler/saver threads start and valid until they have stopped.
+    std::vector<vk::PipelineCache> compiler_pipeline_handles;
     bool worker_caches_seeded = false;
     /// tlg: main-cache pipelines (sync compiles and warm-up builds) the workers were seeded with;
     /// the merges repeat once this grows (SeedWorkerCaches).

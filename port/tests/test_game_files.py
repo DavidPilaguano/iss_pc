@@ -87,6 +87,27 @@ class GameLanguageTests(unittest.TestCase):
         self.chunks([lang_mask(1), lang_mask(8)], big_endian=True)
         self.assertEqual(['en', 'ru'], run.game_languages(self.game))
 
+    def test_european_packages_when_playgo_has_no_language_chunks(self):
+        self.chunks([ALL, 0])
+        cache = self.game / 'art' / 'cache'
+        for name in ('english', 'spanish', 'portuguese', 'french', 'dutch'):
+            write(cache / f'lang_{name}_text.xpps', b'synthetic package')
+        write(cache / 'lang_german_text_p.xpps', b'patch only')
+        write(cache / 'lang_italian_text.xpps', b'')
+        write(cache / 'pgc_latino_a_dummy_file', b'placeholder')
+        with mock.patch.object(run.shader_cache, 'title_id', return_value='CUSA00004'):
+            self.assertEqual(['en', 'pt_PT', 'es', 'fr', 'nl'], run.game_languages(self.game))
+            settings = {'game_dir': str(self.game), 'game_language': 'auto'}
+            self.assertEqual('es', run.resolve_game_language(settings, {'LANG': 'es_EC.UTF-8'}))
+            self.assertNotIn('es_LA', run.game_languages(self.game))
+            self.chunks([lang_mask(1)])
+            self.assertEqual(['en'], run.game_languages(self.game)) # explicit PlayGo wins
+
+    def test_european_package_fallback_is_region_scoped(self):
+        write(self.game / 'art' / 'cache' / 'lang_spanish_text.xpps', b'synthetic package')
+        with mock.patch.object(run.shader_cache, 'title_id', return_value='CUSA00223'):
+            self.assertEqual(list(run._DEFAULT_LANGUAGES), run.game_languages(self.game))
+
     def test_nothing_known_offers_every_language(self):
         every = list(run._DEFAULT_LANGUAGES)
         self.assertEqual(every, run.game_languages(self.game))          # no playgo-chunk.dat (FTP dump)

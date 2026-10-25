@@ -27,7 +27,7 @@ class AsyncCompiler;
 /// tlg: compiler threads that build compute pipelines met in game (PipelineCache).
 struct ComputeBuilder {
     AsyncCompiler* compiler;
-    std::span<const vk::UniquePipelineCache> caches; ///< one per compiler thread
+    std::span<const vk::PipelineCache> caches; ///< borrowed handle per compiler thread
 };
 
 struct ComputePipelineKey {

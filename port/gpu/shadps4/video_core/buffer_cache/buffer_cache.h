@@ -12,6 +12,7 @@
 #include <mutex>
 #include <tuple>
 #include <vector>
+#include "video_core/buffer_cache/residency_policy.h"
 #include <optional>
 #include <utility>
 #include <boost/container/small_vector.hpp>
@@ -335,7 +336,7 @@ private:
     const Buffer* UploadCopies(const Buffer* arena, std::span<vk::BufferCopy> copies,
                                size_t total_size_bytes);
 
-    /// tlg: uploads the ranges (guest addresses in dstOffset) MAX_UPLOAD_PART_BYTES at a time,
+    /// tlg: uploads the ranges (guest addresses in dstOffset) in policy-sized parts,
     /// waiting for the GPU to copy each part before the staging memory takes the next.
     void UploadInParts(const Buffer* arena, std::span<const vk::BufferCopy> ranges);
 
@@ -390,6 +391,7 @@ private:
     vk::DeviceMemory residency_chunk{};
     u64 residency_chunk_used{};
     u64 residency_allocations{};
+    ResidencyPolicy residency_policy{16_MB, 256_MB, MAX_UPLOAD_PART_BYTES};
 
     // tlg: TLG_UNIFIED_MEMORY (unified_memory.h).
     static constexpr u32 UNIFIED_CHUNK_SHIFT = 16;

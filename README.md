@@ -1,3 +1,11 @@
+> **Fork personal de DavidPilaguano.** Basado en [HayatoG/iss_pc](https://github.com/HayatoG/iss_pc),
+> conservando la autoría, el historial y las licencias del proyecto original.
+> Este fork investiga el consumo de RAM en GPU de 4 GiB y añade «Mi equipo» al launcher.
+> Consulta [los créditos y las fuentes](ATTRIBUTION.md) y
+> [los cambios, pruebas y resultados](port/docs/RAM_OPTIMIZATION.md).
+> **Todavía no se ha demostrado un máximo de 8 GB con 30 FPS estables.**
+> Los enlaces de descarga y soporte del README original que sigue corresponden a HayatoG.
+
 <p align="center"><img src="port/packaging/icon/infamous-icon-1024.png" width="160" alt=""></p>
 
 <h1 align="center">inFAMOUS Second Son — native PC port</h1>

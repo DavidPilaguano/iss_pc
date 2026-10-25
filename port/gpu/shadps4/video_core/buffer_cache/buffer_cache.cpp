@@ -22,6 +22,7 @@
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/buffer_cache/memory_tracker.h"
 #include "video_core/buffer_cache/unified_memory.h"
+#include "video_core/buffer_cache/upload_packing.h"
 #include "video_core/renderer_vulkan/vk_graphics_pipeline.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
@@ -34,11 +35,6 @@ namespace VideoCore {
 
 static constexpr size_t GDS_BUFFER_SIZE = 64_KB;
 static constexpr size_t STREAM_BUFFER_SIZE = 128_MB;
-// Memory is made resident in aligned granules of this size. Sparse binds get slower the more is
-// already bound on some drivers, so it pays to bind a little ahead in few larger operations
-// rather than a block at a time as the game streams data in.
-static constexpr u64 RESIDENCY_GRANULE_SIZE = 16_MB;
-static constexpr u64 RESIDENCY_CHUNK_SIZE = 256_MB;
 
 static constexpr auto ARENA_USAGE =
     vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst |
@@ -70,6 +66,12 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
       stream_buffer{instance, scheduler, MemoryType::Stream, STREAM_BUFFER_SIZE},
       gds_buffer{instance, 0, GDS_BUFFER_SIZE, MemoryType::Stream, "GDS Buffer"},
       memory_semaphore{instance} {
+    residency_policy =
+        ChooseResidencyPolicy(instance.GetTotalMemoryBudget(), instance.IsIntegrated());
+    std::printf("GPU: buffer residency granule %llu MiB, allocation chunk %llu MiB, upload part %llu MiB\n",
+                static_cast<unsigned long long>(residency_policy.granule >> 20),
+                static_cast<unsigned long long>(residency_policy.chunk >> 20),
+                static_cast<unsigned long long>(residency_policy.upload_part >> 20));
     // tlg: TLG_MAX_BUFFER_MB lowers the driver's buffer size limit as the arenas see it
     // (diagnostics: reproduces AMD on Windows 2048, RADV 4095 on any GPU).
     u64 max_buffer = instance.GetMaxBufferSize();
@@ -1091,7 +1093,7 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
     }
     // Granules never cross an arena page (1 GiB or more), so the widened range stays within the
     // arena.
-    const u64 granule_blocks = std::max<u64>(RESIDENCY_GRANULE_SIZE >> block_shift, 1);
+    const u64 granule_blocks = std::max<u64>(residency_policy.granule >> block_shift, 1);
     const u64 bind_first = Common::AlignDown(first_block, granule_blocks);
     const u64 bind_end = Common::AlignUp(last_block + 1, granule_blocks);
 
@@ -1195,18 +1197,18 @@ std::optional<std::pair<vk::DeviceMemory, u64>> BufferCache::AllocateResidency(
     // Ranges keep coming as the game streams data in. Carving them out of large chunks keeps the
     // driver from allocating memory each time, which is slow and limited to a few thousand
     // allocations per process on Windows. Large ranges get their own.
-    if (size > RESIDENCY_CHUNK_SIZE / 4) {
+    if (size > residency_policy.chunk / 4) {
         const auto memory = allocate(size);
         return memory ? std::optional{Allocation{memory, 0}} : std::nullopt;
     }
-    if (!residency_chunk || residency_chunk_used + size > RESIDENCY_CHUNK_SIZE) {
-        const auto chunk = allocate(RESIDENCY_CHUNK_SIZE);
+    if (!residency_chunk || residency_chunk_used + size > residency_policy.chunk) {
+        const auto chunk = allocate(residency_policy.chunk);
         if (!chunk) {
             // A whole chunk may not fit when memory is short, while the range itself still does.
             static u32 warned = 0;
             if (warned < 16 || warned % 64 == 0) {
                 LOG_WARNING(Render, "No room for a {} MB residency chunk, allocating {} MB instead",
-                            RESIDENCY_CHUNK_SIZE >> 20, size >> 20);
+                            residency_policy.chunk >> 20, size >> 20);
             }
             ++warned;
             const auto memory = allocate(size);
@@ -1775,6 +1777,16 @@ void BufferCache::FlushMergedWrites(const Buffer* arena, VAddr device_addr, u64 
     for (const auto& [s, e] : ranges) {
         total += Common::AlignUp(e - s, 16);
     }
+    if (total > residency_policy.upload_part) {
+        // Merged CPU writes used to bypass the bounded uploader and allocate a second
+        // RAM copy of the entire range (potentially gigabytes during a load).
+        boost::container::small_vector<vk::BufferCopy, 16> uploads;
+        for (const auto& [s, e] : ranges) {
+            uploads.push_back(vk::BufferCopy{.dstOffset = s, .size = e - s});
+        }
+        UploadInParts(arena, uploads);
+        return;
+    }
     const auto staging = staging_pool.Request(total, MemoryType::HostUncached);
     boost::container::small_vector<vk::BufferCopy, 16> copies;
     u64 offset = 0;
@@ -1822,7 +1834,7 @@ const Buffer* BufferCache::UploadCopies(const Buffer* arena, std::span<vk::Buffe
         texture_cache.ResolveReadbacks(copy.dstOffset, copy.size, true, ReadbackSource::BufferUpload);
     }
     TlgStats::buffer_upload_bytes.fetch_add(total_size_bytes, std::memory_order_relaxed);
-    if (total_size_bytes > MAX_UPLOAD_PART_BYTES) {
+    if (total_size_bytes > residency_policy.upload_part) {
         // Recorded here, part by part: nothing left for the caller to copy.
         UploadInParts(arena, copies);
         return nullptr;
@@ -1900,12 +1912,13 @@ const Buffer* BufferCache::UploadCopies(const Buffer* arena, std::span<vk::Buffe
 }
 
 void BufferCache::UploadInParts(const Buffer* arena, std::span<const vk::BufferCopy> ranges) {
+    const u64 part_limit = residency_policy.upload_part;
     u64 total_bytes = 0;
     for (const auto& range : ranges) {
         total_bytes += range.size;
     }
     LOG_WARNING(Render, "Uploading {} MB in parts of {} MB", total_bytes >> 20,
-                MAX_UPLOAD_PART_BYTES >> 20);
+                part_limit >> 20);
     // Guest memory is copied on this thread (helped by the copy threads), not deferred: the
     // staging memory is reused as soon as the GPU has copied the part.
     struct HostCopy {
@@ -1918,6 +1931,7 @@ void BufferCache::UploadInParts(const Buffer* arena, std::span<const vk::BufferC
     Vulkan::StagingBufferRef staging{};
     u64 part_bytes = 0;
     u32 parts = 0;
+    UploadPacking packing{part_limit};
     const auto upload_part = [&] {
         TlgCopy::ParallelFor(host_copies.size(), [&](std::size_t i) {
             memory->CopySparseMemory(host_copies[i].source, host_copies[i].destination,
@@ -1940,20 +1954,21 @@ void BufferCache::UploadInParts(const Buffer* arena, std::span<const vk::BufferC
                     // This thread owns the caches, as for DownloadMemory's Finish.
                     scheduler.Finish();
                 }
-                staging = staging_pool.Request(MAX_UPLOAD_PART_BYTES, MemoryType::HostUncached);
+                staging = staging_pool.Request(part_limit, MemoryType::HostUncached);
             }
-            const u64 size = std::min(range.size - done, MAX_UPLOAD_PART_BYTES - part_bytes);
+            const auto slice = packing.Next(range.size - done);
+            const u64 size = slice.size;
             const VAddr addr = range.dstOffset + done;
-            copies.push_back(vk::BufferCopy{.srcOffset = staging.offset + part_bytes,
+            copies.push_back(vk::BufferCopy{.srcOffset = staging.offset + slice.offset,
                                             .dstOffset = addr - arena->cpu_addr,
                                             .size = size});
             for (u64 piece = 0; piece < size; piece += PieceBytes) {
-                host_copies.push_back({addr + piece, staging.mapped + part_bytes + piece,
+                host_copies.push_back({addr + piece, staging.mapped + slice.offset + piece,
                                        std::min(PieceBytes, size - piece)});
             }
-            part_bytes += size;
+            part_bytes = slice.offset + size;
             done += size;
-            if (part_bytes == MAX_UPLOAD_PART_BYTES) {
+            if (slice.full) {
                 upload_part();
             }
         }

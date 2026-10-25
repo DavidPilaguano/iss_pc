@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include <chrono>
 #include <memory>
 #include <vector>
 
@@ -50,9 +51,10 @@ public:
     void TickFrame();
 
 private:
+    using Clock = std::chrono::steady_clock;
     struct Block {
         std::unique_ptr<VideoCore::StreamBuffer> buffer;
-        u64 last_used_frame;
+        Clock::time_point last_used;
     };
 
     struct Ring {
@@ -63,7 +65,7 @@ private:
     struct LargeBuffer {
         std::unique_ptr<VideoCore::Buffer> buffer;
         u64 tick;
-        u64 last_used_frame;
+        Clock::time_point last_used;
         bool held;
     };
 
@@ -73,8 +75,8 @@ private:
                                      VideoCore::MemoryType type);
     StagingBufferRef RequestLarge(u64 size, VideoCore::MemoryType type, bool deferred);
 
-    void TrimRing(Ring& ring);
-    void TrimLarge(std::vector<LargeBuffer>& cache);
+    void TrimRing(Ring& ring, u64& allocated, u64 budget);
+    void TrimLarge(std::vector<LargeBuffer>& cache, u64& allocated, u64 budget);
 
     void PublishStats() const;
 
@@ -82,9 +84,9 @@ private:
     Scheduler& scheduler;
 
     std::array<Ring, NUM_TYPES> rings;
-    u64 keep_blocks = 0; ///< tlg: ring blocks never trimmed
+    u64 host_budget = 0; ///< shared RAM retention budget for both host memory types
     std::array<std::vector<LargeBuffer>, NUM_TYPES> large_caches;
-    u64 frame = 0;
+    Clock::time_point now = Clock::now();
 };
 
 } // namespace Vulkan

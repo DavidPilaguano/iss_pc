@@ -16,6 +16,7 @@
 #include "common/div_ceil.h"
 #include "common/error.h"
 #include "common/range_lock.h"
+#include "common/sparse_page_table.h"
 #include "common/signal_context.h"
 #include "core/emulator_settings.h"
 #include "core/memory.h"
@@ -71,19 +72,7 @@ struct PageManager::Impl {
     static constexpr size_t NUM_ADDRESS_LOCKS = NUM_ADDRESS_PAGES / PAGES_PER_LOCK;
     inline static Vulkan::Rasterizer* rasterizer;
 
-    Impl() {
-#if defined(__linux__) && defined(MADV_FREE)
-        // tlg: cached_pages is one zero counter pair per 4 KiB of the 40-bit address space (512
-        // MiB) and is value-initialized, which commits all of it. Hand the untouched part back to
-        // the kernel: MADV_FREE only drops the pages under memory pressure, and a page dropped
-        // that way faults back in zeroed, which is exactly what the counters hold (they are all
-        // zero and any page written afterwards is never dropped). The locks cannot be freed this
-        // way (their mutexes are initialized to non-zero bytes).
-        const VAddr base = reinterpret_cast<VAddr>(cached_pages.data());
-        const VAddr first = Common::AlignUp(base, PM_PAGE_SIZE);
-        ::madvise(reinterpret_cast<void*>(first), sizeof(cached_pages) - (first - base), MADV_FREE);
-#endif
-    }
+    Impl() = default;
     virtual ~Impl() = default;
 
     virtual void OnMap(VAddr address, size_t size) {
@@ -361,7 +350,9 @@ struct PageManager::Impl {
         release_pending();
     }
 
-    std::array<PageState, NUM_ADDRESS_PAGES> cached_pages{};
+    // The same lock covers one metadata block. Six GiB of watched guest memory needs
+    // ~3 MiB of counters plus a 2 MiB directory, instead of eagerly touching 512 MiB.
+    Common::SparsePageTable<PageState, NUM_ADDRESS_PAGES, PAGES_PER_LOCK> cached_pages;
 #ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
     using LockType = Common::AdaptiveMutex;
 #else

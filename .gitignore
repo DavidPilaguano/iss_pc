@@ -1,4 +1,4 @@
-# Arquivos do jogo (copyright da Sony/genDESIGN): NUNCA versionar
+# Arquivos do jogo : NUNCA versionar
 /dump/
 *.psarc
 *.bin
@@ -33,3 +33,37 @@ port/pgo/
 port/user/
 /game/
 port/dist/
+
+# Análisis, entornos y configuración local
+/graphify-out/
+/.codex/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Compilaciones, cachés y diagnósticos generados
+*.exe
+*.dll
+*.pdb
+*.obj
+*.o
+*.a
+*.lib
+*.spv
+*.vkc
+*.log
+*.dmp
+/perf-traces/
+
+# Paquetes y archivos extraídos del juego; los fixtures sintéticos siguen arriba
+*.xpps
+*.pkg
+*.pup
+*.self
+*.elf

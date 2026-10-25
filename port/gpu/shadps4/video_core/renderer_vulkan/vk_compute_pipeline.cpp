@@ -183,7 +183,7 @@ ComputePipeline::ComputePipeline(const Instance& instance, Scheduler& scheduler,
         const bool queued = builder->compiler->Submit(
             [state, create, caches, deferred_bind, debug_str] {
                 const auto start = std::chrono::steady_clock::now();
-                auto built = create(*caches[AsyncCompiler::WorkerIndex()], {});
+                auto built = create(caches[AsyncCompiler::WorkerIndex()], {});
                 LOG_INFO(Render_Vulkan, "tlg: compute pipeline {} built on a compiler thread in "
                          "{:.1f} ms{}", debug_str,
                          std::chrono::duration<double, std::milli>(

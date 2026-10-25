@@ -187,6 +187,13 @@ GAME_LANGUAGES = {'en': 1, 'en_GB': 18, 'pt_BR': 17, 'pt_PT': 7, 'es_LA': 20, 'e
                   'th': 27, 'vi': 28, 'id': 29}
 # Offered when the game files cannot tell (no playgo-chunk.dat, as in FTP dumps): the CUSA00223 set.
 _DEFAULT_LANGUAGES = ('en', 'pt_BR', 'es_LA', 'fr_CA', 'tr', 'ru')
+# CUSA00004 can carry an all-languages PlayGo mask with no per-language chunks.
+# Its actual language packages distinguish European Spanish/Portuguese/French
+# from the CUSA00223 defaults. Only recognize this verified European layout.
+_EU_PACKAGE_LANGUAGES = {'english': 'en', 'british': 'en_GB', 'portuguese': 'pt_PT',
+                         'spanish': 'es', 'french': 'fr', 'german': 'de', 'italian': 'it',
+                         'dutch': 'nl', 'polish': 'pl', 'turkish': 'tr', 'russian': 'ru',
+                         'finnish': 'fi', 'swedish': 'sv', 'danish': 'da', 'norwegian': 'no'}
 # The closest choice when the system's language is missing from the game files.
 _LANGUAGE_SIBLING = {'en_GB': 'en', 'pt_PT': 'pt_BR', 'pt_BR': 'pt_PT', 'es': 'es_LA', 'es_LA': 'es',
                      'fr': 'fr_CA', 'fr_CA': 'fr', 'zh_TW': 'zh_CN', 'zh_CN': 'zh_TW'}
@@ -271,16 +278,32 @@ def playgo_languages(path):
 
 
 def game_languages(game_dir):
-    """The GAME_LANGUAGES keys the game files have, in that order, from the PlayGo chunk languages
-    of <game>/sce_sys/playgo-chunk.dat; the CUSA00223 set when that cannot tell (no file: FTP dumps
-    do not expose it; or no language chunk). param.sfo is no help: its TITLE_xx keys are store titles."""
+    """GAME_LANGUAGES keys from PlayGo, then verified CUSA00004 text package names.
+    With no evidence, use the CUSA00223 set. SFO TITLE_xx entries are store titles,
+    not installed languages; TITLE_ID only scopes the European package fallback."""
     ids = set()
     if game_dir:
         try:
             ids = _cached(Path(game_dir) / 'sce_sys' / 'playgo-chunk.dat', 'languages', playgo_languages)
         except (OSError, ValueError, struct.error):
             pass
-    return [key for key, code in GAME_LANGUAGES.items() if code in ids] or list(_DEFAULT_LANGUAGES)
+    present = [key for key, code in GAME_LANGUAGES.items() if code in ids]
+    if present:
+        return present
+    if game_dir and shader_cache.title_id(game_dir) == 'CUSA00004':
+        cache = Path(game_dir) / 'art' / 'cache'
+        packages = set()
+        for name, key in _EU_PACKAGE_LANGUAGES.items():
+            # Patch-only packages and pgc_*_dummy_file placeholders are not a language.
+            path = cache / f'lang_{name}_text.xpps'
+            try:
+                if path.is_file() and path.stat().st_size:
+                    packages.add(key)
+            except OSError:
+                pass
+        if packages:
+            return [key for key in GAME_LANGUAGES if key in packages]
+    return list(_DEFAULT_LANGUAGES)
 
 
 def game_language_choices(settings):

@@ -28,3 +28,5 @@ ConfirmCard 1.0 ConfirmCard.qml
 Rail 1.0 Rail.qml
 Window 1.0 Window.qml
 Main 1.0 Main.qml
+
+EquipmentPage 1.0 EquipmentPage.qml

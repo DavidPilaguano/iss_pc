@@ -1,0 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+#version 450
+layout(local_size_x = 1) in;
+layout(constant_id = 0) const uint value = 0;
+layout(set = 0, binding = 0) buffer Output { uint values[]; } output_data;
+void main() { output_data.values[0] = value; }

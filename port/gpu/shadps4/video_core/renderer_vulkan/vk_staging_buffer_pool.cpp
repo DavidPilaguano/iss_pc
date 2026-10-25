@@ -14,6 +14,7 @@
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_staging_buffer_pool.h"
+#include "video_core/renderer_vulkan/staging_retention.h"
 
 namespace Vulkan {
 
@@ -23,11 +24,8 @@ namespace {
 
 // tlg: staging memory is populated (allocated and cleared) by the kernel on first CPU access,
 // ~2 ms per 16 MiB block. Streaming bursts a few seconds apart re-created the blocks trimmed
-// in between and copies into them ran at 0.3 GB/s (stutter). Blocks now live 30 s idle, the
-// upload ring keeps TLG_STAGING_KEEP_MB (512) and is populated at startup.
-constexpr u64 RING_IDLE_FRAMES = 3000;
-constexpr u64 LARGE_IDLE_FRAMES = 3000;
-constexpr u64 PREWARM_BLOCKS = 8;
+// in between and copies into them ran at 0.3 GB/s (stutter). Keep a reusable RAM budget
+// shared by uploads and readbacks; trim completed excess after a streaming grace period.
 constexpr u64 LARGE_MIN_GRANULARITY = 64_KB;
 constexpr u64 BLOCK_SIZE = 16_MB;
 
@@ -41,13 +39,13 @@ u64 RoundAllocationSize(u64 size) {
 StagingBufferPool::StagingBufferPool(const Instance& instance_, Scheduler& scheduler_)
     : instance{instance_}, scheduler{scheduler_} {
     const char* env = std::getenv("TLG_STAGING_KEEP_MB");
-    keep_blocks = (env ? std::strtoull(env, nullptr, 10) : 512) * 1_MB / BLOCK_SIZE;
+    host_budget = StagingRetention::Budget(env);
     Ring& ring = rings[u32(MemoryType::HostUncached)];
-    for (u64 i = 0; i < PREWARM_BLOCKS; ++i) {
+    for (u64 i = 0; i < StagingRetention::PrewarmBlocks(host_budget); ++i) {
         auto& block = ring.blocks.emplace_back(Block{
             .buffer = std::make_unique<VideoCore::StreamBuffer>(
                 instance, scheduler, MemoryType::HostUncached, BLOCK_SIZE),
-            .last_used_frame = frame,
+            .last_used = now,
         });
         if (!block.buffer->mapped_data.empty()) {
             std::memset(block.buffer->mapped_data.data(), 0, block.buffer->mapped_data.size());
@@ -85,14 +83,14 @@ StagingBufferRef StagingBufferPool::RequestFromRing(Ring& ring, u64 size, u64 al
         best = &ring.blocks.emplace_back(Block{
             .buffer =
                 std::make_unique<VideoCore::StreamBuffer>(instance, scheduler, type, BLOCK_SIZE),
-            .last_used_frame = frame,
+            .last_used = now,
         });
         ring.current = ring.blocks.size() - 1;
         best_offset = *best->buffer->Reserve(size, alignment, false);
     }
 
     auto& buffer = *best->buffer;
-    best->last_used_frame = frame;
+    best->last_used = now;
 
     StagingBufferRef ref{
         .buffer = &buffer,
@@ -127,13 +125,13 @@ StagingBufferRef StagingBufferPool::RequestLarge(u64 size, MemoryType type, bool
             .buffer = std::make_unique<VideoCore::Buffer>(instance, 0, RoundAllocationSize(size),
                                                           type, "StagingBufferPool:Dedicated"),
             .tick = 0,
-            .last_used_frame = frame,
+            .last_used = now,
             .held = false,
         });
     }
 
     best->tick = scheduler.CurrentTick();
-    best->last_used_frame = frame;
+    best->last_used = now;
     best->held = deferred;
 
     VideoCore::Buffer& buffer = *best->buffer;
@@ -156,28 +154,47 @@ void StagingBufferPool::FreeDeferred(const StagingBufferRef& ref) {
     ASSERT_MSG(it != cache.end() && it->held, "FreeDeferred on an allocation that is not held");
     it->held = false;
     it->tick = scheduler.CurrentTick();
-    it->last_used_frame = frame;
+    it->last_used = now;
 }
 
 void StagingBufferPool::TickFrame() {
-    ++frame;
-    for (Ring& ring : rings) {
-        TrimRing(ring);
+    now = Clock::now();
+    u64 host_bytes = 0;
+    u64 device_bytes = 0;
+    for (size_t i = 0; i < NUM_TYPES; ++i) {
+        auto& bytes = i == u32(MemoryType::DeviceLocal) ? device_bytes : host_bytes;
+        for (const auto& block : rings[i].blocks) {
+            bytes += block.buffer->SizeBytes();
+        }
+        for (const auto& entry : large_caches[i]) {
+            bytes += entry.buffer->SizeBytes();
+        }
     }
-    for (auto& cache : large_caches) {
-        TrimLarge(cache);
+    for (size_t i = 0; i < NUM_TYPES; ++i) {
+        const bool device = i == u32(MemoryType::DeviceLocal);
+        auto& bytes = device ? device_bytes : host_bytes;
+        const u64 budget = device ? 512_MB : host_budget;
+        // Dedicated allocations are least reusable; release them before ring blocks.
+        TrimLarge(large_caches[i], bytes, budget);
+    }
+    for (size_t i = 0; i < NUM_TYPES; ++i) {
+        const bool device = i == u32(MemoryType::DeviceLocal);
+        auto& bytes = device ? device_bytes : host_bytes;
+        const u64 budget = device ? 512_MB : host_budget;
+        TrimRing(rings[i], bytes, budget);
     }
     PublishStats();
 }
 
-void StagingBufferPool::TrimRing(Ring& ring) {
+void StagingBufferPool::TrimRing(Ring& ring, u64& allocated, u64 budget) {
     auto& blocks = ring.blocks;
     for (size_t i = blocks.size(); i-- > 0;) {
         const Block& block = blocks[i];
-        if (blocks.size() <= keep_blocks || frame - block.last_used_frame < RING_IDLE_FRAMES ||
+        if (!StagingRetention::ShouldTrim(now - block.last_used, allocated, budget, false, true) ||
             !scheduler.IsFree(block.buffer->LastTick())) {
             continue;
         }
+        allocated -= block.buffer->SizeBytes();
         blocks.erase(blocks.begin() + i);
         if (i < ring.current) {
             --ring.current;
@@ -190,10 +207,14 @@ void StagingBufferPool::TrimRing(Ring& ring) {
     }
 }
 
-void StagingBufferPool::TrimLarge(std::vector<LargeBuffer>& cache) {
-    std::erase_if(cache, [this](const LargeBuffer& entry) {
-        return !entry.held && frame - entry.last_used_frame >= LARGE_IDLE_FRAMES &&
-               scheduler.IsFree(entry.tick);
+void StagingBufferPool::TrimLarge(std::vector<LargeBuffer>& cache, u64& allocated, u64 budget) {
+    std::erase_if(cache, [&](const LargeBuffer& entry) {
+        if (!StagingRetention::ShouldTrim(now - entry.last_used, allocated, budget, true, true,
+                                         entry.held) || !scheduler.IsFree(entry.tick)) {
+            return false;
+        }
+        allocated -= entry.buffer->SizeBytes();
+        return true;
     });
 }
 
