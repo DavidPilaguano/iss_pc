@@ -20,6 +20,10 @@ import os
 from collections import namedtuple
 from pathlib import Path
 
+# Test (PR #656, 2026-10-24): renderer v2 on every card and OS, renderer 1 never starts. Saved
+# choices, presets and the Renderer switch are ignored while this is on; False restores the choice.
+V1_DISABLED = True
+
 _WINDOWS = os.name == 'nt'
 
 # group: 'menu' | 'bp' | 'ab'.  vtype: 'bool' | 'choice' | 'int' | 'float'.
@@ -252,7 +256,7 @@ DIAGNOSTICS = [
     # 11-20 FPS in gameplay with the previous v2 defaults, ~40-45 FPS with native passes and
     # gpu_v2/defaults.env's unified memory off). Linux keeps this port's renderer: native passes
     # crash NVIDIA's Linux driver.
-    _ab_choice('renderer', 'TLG_RENDERER', '2' if _WINDOWS else '1',
+    _ab_choice('renderer', 'TLG_RENDERER', '2' if _WINDOWS or V1_DISABLED else '1',
                (('1', '1 · This port\'s renderer', '1 · Renderer deste port'),
                 ('2', '2 · Renderer v2 (experimental)', '2 · Renderer v2 (experimental)')),
                ('Renderer', 'Renderer'),
@@ -369,6 +373,8 @@ FLOAT_STEPS = {'lod_scale': 0.05, 'region_lod': 0.05, 'region_fade': 0.05, 'near
 
 def effective(item, states):
     """The value the game will use; None for an automatic switch left on automatic."""
+    if V1_DISABLED and item.id == 'TLG_RENDERER':
+        return '2'
     value = states.get(item.id)
     return item.default if value is None else value
 

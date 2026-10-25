@@ -30,6 +30,13 @@ class TextTests(unittest.TestCase):
         self.assertEqual(set(IDS), set(logic.V1_ONLY))
 
 
+    def test_renderer_is_always_2_while_v1_is_disabled(self):
+        item = next(i for i in logic.backports_table.ITEMS if i.id == 'TLG_RENDERER')
+        if logic.backports_table.V1_DISABLED:
+            for state in ({}, {'TLG_RENDERER': '1'}, {'TLG_RENDERER': '2'}):
+                self.assertEqual(logic.backports_table.effective(item, state), '2')
+
+
 @unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
 class RowTests(unittest.TestCase):
     def rows(self, renderer):
@@ -47,7 +54,8 @@ class RowTests(unittest.TestCase):
         return found
 
     def test_disabled_with_renderer_2_enabled_with_1(self):
-        for renderer, off in (('2', True), ('1', False)):
+        # With renderer 1 off in this build (V1_DISABLED) the effective renderer is always 2.
+        for renderer, off in (('2', True), ('1', logic.backports_table.V1_DISABLED)):
             found = self.rows(renderer)
             for rid in IDS:
                 self.assertIn(rid, found)
