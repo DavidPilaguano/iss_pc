@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #ifdef _WIN32
 #include <windows.h>
+#include "stream_read_win.h"
 /* 64-bit sizes and times; directories are never opened as CRT descriptors. */
 typedef struct _stat64 HostStat;
 #define host_stat(path,s) _stat64(path,s)
@@ -56,7 +57,7 @@ typedef struct { char *names; size_t count, *offsets; unsigned char *types; } Li
  * inFAMOUS say "the disc or hard disk is corrupted" at the graffiti. Reads at the position go
  * through compat_pread like pread. */
 typedef struct { int used, host; Listing *dir; size_t position; char path[512];
-                 int64_t offset; int append; pthread_mutex_t io; } File;
+                 int64_t offset; int append; pthread_mutex_t io; void *stream; } File;
 typedef struct { char guest[64]; char host[512]; } Mount;
 static File files[MAX_FILES];
 static Mount mounts[MAX_MOUNTS];
@@ -267,11 +268,31 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     Listing *dir=NULL;
     if (!fstat(host,&s) && S_ISDIR(s.st_mode)) dir=list_directory(path);
 #endif
+    void *stream=NULL;
+#ifdef _WIN32
+    const char *stream_option=getenv("TLG_STREAM_READ");
+    if (host>=0 && game_path(guest) && !(flags&3) &&
+        (!stream_option || stream_option[0]!='0')) {
+        stream=stream_read_open(host);
+        static unsigned announced;
+        if (stream && !__atomic_exchange_n(&announced,1,__ATOMIC_RELAXED))
+            printf("Runtime: independent overlapped package reads enabled (TLG_STREAM_READ)\n");
+    }
+#endif
     pthread_mutex_lock(&lock);
     int fd=-1;
     for (int i=3;i<MAX_FILES;++i) if (!files[i].used) { fd=i; break; }
-    if (fd<0) { pthread_mutex_unlock(&lock); if (host>=0) close(host); free_listing(dir); if (runtime_verbose()) log_io_problem("open (descriptor table full)",guest,-EMFILE,EMFILE); return -EMFILE; }
-    files[fd]=(File){.used=1,.host=host,.dir=dir,.append=(flags&0x8)!=0};
+    if (fd<0) {
+        pthread_mutex_unlock(&lock);
+#ifdef _WIN32
+        if (stream) CloseHandle((HANDLE)stream);
+#endif
+        if (host>=0) close(host);
+        free_listing(dir);
+        if (runtime_verbose()) log_io_problem("open (descriptor table full)",guest,-EMFILE,EMFILE);
+        return -EMFILE;
+    }
+    files[fd]=(File){.used=1,.host=host,.dir=dir,.append=(flags&0x8)!=0,.stream=stream};
     pthread_mutex_init(&files[fd].io,NULL);
     snprintf(files[fd].path,sizeof(files[fd].path),"%s",guest);
     if(karma_save_trace()&&karma_save_file(&files[fd]))fprintf(stderr,"KARMA_SAVE_OPEN guest=%s host=%s flags=%x size=%lld\n",guest,path,flags,(long long)s.st_size);
@@ -309,6 +330,9 @@ static int64_t do_close(int fd) {
         const unsigned n=__atomic_fetch_add(&verbose_closes,1,__ATOMIC_RELAXED);
         if (n<256 || !(n%1000)) printf("Verbose: file close #%u (%s) fd %d\n",n,f->path,fd);
     }
+#ifdef _WIN32
+    if (f->stream) CloseHandle((HANDLE)f->stream);
+#endif
     if (f->host>=0) close(f->host);
     if(karma_save_file(f))iss_karma_save_close(fd);
     free_listing(f->dir);
@@ -387,31 +411,39 @@ static int file_direct(void) {
 /* Straight into the guest buffer; EFAULT here is the GPU tracker's page protection. The pages
  * are touched first only on the out-of-memory path (as before): with TLG_FILE_DIRECT the touch
  * would turn every read into tracked CPU writes, and an EFAULT moves the rest to the bounce. */
-static ssize_t direct_read(int h,unsigned char *at,uint64_t size,int64_t offset,int touch) {
+static ssize_t package_pread(int h,void *buffer,uint64_t size,int64_t offset,void *stream) {
+#ifdef _WIN32
+    if (stream) return stream_read_at(stream,buffer,(size_t)size,offset);
+#else
+    (void)stream;
+#endif
+    return pread(h,buffer,size,offset);
+}
+static ssize_t direct_read(int h,unsigned char *at,uint64_t size,int64_t offset,int touch,void *stream) {
     if (touch) touch_for_write(at,size);
-    ssize_t n=offset<0 ? host_read(h,at,size) : pread(h,at,size,offset);
+    ssize_t n=offset<0 ? host_read(h,at,size) : package_pread(h,at,size,offset,stream);
     if (n>0) __atomic_add_fetch(&direct_reads,1,__ATOMIC_RELAXED);
     return n;
 }
-static ssize_t bounce_read(int h,unsigned char *at,uint64_t size,int64_t offset) {
+static ssize_t bounce_read(int h,unsigned char *at,uint64_t size,int64_t offset,void *stream) {
     static _Thread_local unsigned char *bounce;
     if (!bounce && !(bounce=malloc(BOUNCE_BYTES))) return -2;   /* no buffer: read directly */
     __atomic_add_fetch(&bounce_reads,1,__ATOMIC_RELAXED);
     uint64_t want=size<BOUNCE_BYTES ? size : BOUNCE_BYTES;
-    ssize_t n=offset<0 ? host_read(h,bounce,want) : pread(h,bounce,want,offset);
+    ssize_t n=offset<0 ? host_read(h,bounce,want) : package_pread(h,bounce,want,offset,stream);
     if (n>0) memcpy(at,bounce,(size_t)n);
     return n;
 }
-static ssize_t full_io(int h,void *buffer,uint64_t size,int64_t offset) {
+static ssize_t full_io(int h,void *buffer,uint64_t size,int64_t offset,void *stream) {
     unsigned char *at=buffer;
     uint64_t done=0;
     int stalls=0;
     int use_bounce=!file_direct();
     for (; done<size && stalls<64;) {
-        ssize_t n=use_bounce ? bounce_read(h,at+done,size-done,offset<0 ? -1 : offset+(int64_t)done)
-                             : direct_read(h,at+done,size-done,offset<0 ? -1 : offset+(int64_t)done,0);
+        ssize_t n=use_bounce ? bounce_read(h,at+done,size-done,offset<0 ? -1 : offset+(int64_t)done,stream)
+                             : direct_read(h,at+done,size-done,offset<0 ? -1 : offset+(int64_t)done,0,stream);
         if (n==-2) {   /* no bounce buffer (out of memory): read straight into the guest */
-            n=direct_read(h,at+done,size-done,offset<0 ? -1 : offset+(int64_t)done,1);
+            n=direct_read(h,at+done,size-done,offset<0 ? -1 : offset+(int64_t)done,1,stream);
         } else if (!use_bounce) {
             if (n>=0 && (uint64_t)n<size-done) use_bounce=1;      /* short read: bounce the rest */
             else if (n<0 && errno==EFAULT) { use_bounce=1; continue; } /* protected page */
@@ -437,13 +469,13 @@ static int64_t do_read(int fd,void *buffer,uint64_t size) {
     if (f) {
         pthread_mutex_lock(&f->io);
         karma_offset=f->offset;
-        n=full_io(h,buffer,size,f->offset);
+        n=full_io(h,buffer,size,f->offset,f->stream);
         if (n>0) f->offset+=n;
         pthread_mutex_unlock(&f->io);
-    } else n=full_io(h,buffer,size,-1);
+    } else n=full_io(h,buffer,size,-1,NULL);
 #else
     if(fd>=3&&karma_save_file(get(fd)))karma_offset=host_lseek(h,0,SEEK_CUR);
-    ssize_t n=full_io(h,buffer,size,-1);
+    ssize_t n=full_io(h,buffer,size,-1,NULL);
 #endif
     if (n<0) { int e=errno; log_read_problem("read",fd,size,-1,n,e); return -e; }
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
@@ -454,7 +486,8 @@ static int64_t do_read(int fd,void *buffer,uint64_t size) {
 static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     int h=host_fd(fd);
     if (h<0) return -EBADF;
-    ssize_t n=full_io(h,buffer,size,offset);
+    File *f=fd>=3 ? get(fd) : NULL;
+    ssize_t n=full_io(h,buffer,size,offset,f ? f->stream : NULL);
     if (n<0) { int e=errno; log_read_problem("pread",fd,size,offset,n,e); return -e; }
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     karma_trace_io(fd,"pread",offset,n);

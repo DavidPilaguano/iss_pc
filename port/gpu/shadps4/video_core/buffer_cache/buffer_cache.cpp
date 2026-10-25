@@ -16,6 +16,7 @@
 #include "tlg_copy.h"
 #include "tlg_toggles.h"
 #include "common/alignment.h"
+#include "common/scope_exit.h"
 #include "core/memory.h"
 #include "video_core/amdgpu/liverpool.h"
 #include "video_core/buffer_cache/buffer.h"
@@ -1917,10 +1918,24 @@ void BufferCache::UploadInParts(const Buffer* arena, std::span<const vk::BufferC
     for (const auto& range : ranges) {
         total_bytes += range.size;
     }
-    LOG_WARNING(Render, "Uploading {} MB in parts of {} MB", total_bytes >> 20,
-                part_limit >> 20);
-    // Guest memory is copied on this thread (helped by the copy threads), not deferred: the
-    // staging memory is reused as soon as the GPU has copied the part.
+    const u32 slot_count = part_limit <= 64_MB && total_bytes > part_limit ? 2 : 1;
+    LOG_WARNING(Render, "Uploading {} MB in parts of {} MB ({} staging slots)", total_bytes >> 20,
+                part_limit >> 20, slot_count);
+    // Two bounded slots overlap the next CPU copy with the previous GPU transfer on small
+    // cards. Wait only before overwriting that slot, rather than draining the GPU after
+    // every 64 MiB. Other cards retain their single larger window.
+    struct UploadSlot {
+        Vulkan::StagingBufferRef staging{};
+        u64 tick = 0;
+    };
+    std::array<UploadSlot, 2> slots{};
+    SCOPE_EXIT {
+        for (auto& slot : slots) {
+            if (slot.staging.buffer) {
+                staging_pool.FreeDeferred(slot.staging);
+            }
+        }
+    };
     struct HostCopy {
         VAddr source;
         u8* destination;
@@ -1930,6 +1945,7 @@ void BufferCache::UploadInParts(const Buffer* arena, std::span<const vk::BufferC
     std::vector<HostCopy> host_copies;
     Vulkan::StagingBufferRef staging{};
     u64 part_bytes = 0;
+    u64 part_payload = 0, uploaded_bytes = 0;
     u32 parts = 0;
     UploadPacking packing{part_limit};
     const auto upload_part = [&] {
@@ -1939,9 +1955,15 @@ void BufferCache::UploadInParts(const Buffer* arena, std::span<const vk::BufferC
         });
         staging.Flush();
         runtime.CopyBuffer(staging.buffer, arena, copies);
+        slots[parts % slot_count].tick = scheduler.CurrentTick();
+        uploaded_bytes += part_payload;
+        if (uploaded_bytes < total_bytes) {
+            scheduler.Flush();
+        }
         copies.clear();
         host_copies.clear();
         part_bytes = 0;
+        part_payload = 0;
         ++parts;
     };
     // Pieces of a few MB spread a part over the copy threads.
@@ -1949,12 +1971,14 @@ void BufferCache::UploadInParts(const Buffer* arena, std::span<const vk::BufferC
     for (const auto& range : ranges) {
         for (u64 done = 0; done < range.size;) {
             if (part_bytes == 0) {
-                if (parts != 0) {
-                    // The staging memory is free again once the GPU has copied the last part.
-                    // This thread owns the caches, as for DownloadMemory's Finish.
-                    scheduler.Finish();
+                auto& slot = slots[parts % slot_count];
+                if (slot.staging.buffer) {
+                    scheduler.Wait(slot.tick);
+                } else {
+                    slot.staging = staging_pool.Request(part_limit, MemoryType::HostUncached,
+                                                        0, true);
                 }
-                staging = staging_pool.Request(part_limit, MemoryType::HostUncached);
+                staging = slot.staging;
             }
             const auto slice = packing.Next(range.size - done);
             const u64 size = slice.size;
@@ -1967,6 +1991,7 @@ void BufferCache::UploadInParts(const Buffer* arena, std::span<const vk::BufferC
                                        std::min(PieceBytes, size - piece)});
             }
             part_bytes = slice.offset + size;
+            part_payload += size;
             done += size;
             if (slice.full) {
                 upload_part();

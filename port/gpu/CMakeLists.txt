@@ -51,6 +51,8 @@ elseif (TLG_PGO STREQUAL "use")
 endif()
 
 find_package(Vulkan REQUIRED)
+add_executable(upload-streaming-test EXCLUDE_FROM_ALL ../tests/test_upload_streaming.cpp)
+target_link_libraries(upload-streaming-test PRIVATE Vulkan::Vulkan)
 # Pinned Vulkan-Headers (submodule) ahead of the system ones: distro headers can lag behind the
 # extensions the shadPS4 video core uses (e.g. Fedora 44 ships 1.4.341, VALVE mixed float dot is newer).
 if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/vulkan-headers/include/vulkan/vulkan.hpp)
@@ -283,6 +285,11 @@ if (WIN32)
     # The guest main thread runs on the process stack: 16 MiB, committed (no stack probes).
     target_link_options(tlg-probe PRIVATE -Wl,--disable-high-entropy-va "SHELL:-Xlinker --stack -Xlinker 16777216,16777216")
     # tlg: runtime unit tests (ninja -C out/gpu mp3-test videodec-test services-test).
+    add_executable(stream-read-test EXCLUDE_FROM_ALL ../tests/test_stream_read_win.c ../src/compat_win.c)
+    set_target_properties(stream-read-test PROPERTIES C_STANDARD 11 C_EXTENSIONS OFF)
+    target_compile_options(stream-read-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+    target_include_directories(stream-read-test PRIVATE .. ../src)
+    target_link_libraries(stream-read-test PRIVATE bcrypt -pthread)
     add_executable(mp3-test EXCLUDE_FROM_ALL ../tests/test_mp3.c ../src/runtime_mp3.c ../src/compat_win.c)
     add_executable(videodec-test EXCLUDE_FROM_ALL ../tests/test_videodec.c ../src/compat_win.c)
     add_executable(services-test EXCLUDE_FROM_ALL ../tests/test_services.c ../src/compat_win.c)

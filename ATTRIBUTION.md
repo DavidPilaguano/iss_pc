@@ -18,6 +18,10 @@ rama local `developer`. Cambios del fork preparados el 25 de octubre de 2026:
 - Caché compartida entre compiladores y guardado sin duplicar esa caché en Vulkan.
 - Detección de los idiomas presentes en CUSA00004 y sección «Mi equipo» del launcher.
 - Pruebas específicas, muestreador de memoria y documentación de resultados y límites.
+- Lecturas independientes de paquetes en Windows, subidas de zonas con dos bloques
+  alternos y menor frecuencia de consultas rutinarias del recolector. Véase
+  [ZONE_STREAMING.md](port/docs/ZONE_STREAMING.md) para la procedencia técnica,
+  las pruebas y los límites de estos cambios.
 
 El objetivo de 8 GB y 30 FPS estables **no está demostrado**. Los resultados medidos,
 las condiciones y las limitaciones están en

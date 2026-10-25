@@ -2053,7 +2053,16 @@ void TextureCache::RunGarbageCollector() {
         ApplyBackingWrites();
     }
 
-    GarbageCollectImages();
+    // A scene submits many command buffers per frame. Re-querying driver heap budgets
+    // and walking the image LRU on every submission adds work to zone streaming and
+    // can repeatedly evict images between adjacent draws. Keep the existing ages and
+    // thresholds, but limit routine passes to ~60 Hz. Allocation-failure reclamation
+    // remains immediate; backing writes above are always applied on every submission.
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= next_image_gc) {
+        next_image_gc = now + std::chrono::milliseconds(16);
+        GarbageCollectImages();
+    }
     GarbageCollectSamplers();
 }
 
