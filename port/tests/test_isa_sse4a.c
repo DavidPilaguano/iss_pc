@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -22,6 +23,7 @@ enum { PAGE = 4096, SITE_AT = 0x100 };
 static int native;                      /* host executes SSE4A */
 static unsigned char *image, *stubs, *pristine, *jit;
 static uint64_t rng = 0x9e3779b97f4a7c15ull;
+static int jumps_only, sweep_fields;
 
 static uint64_t next(void) {             /* xorshift64* */
     rng ^= rng >> 12;
@@ -354,15 +356,20 @@ static void run_site(uint8_t kind, int dst, int src, unsigned length, unsigned i
     t.image_size = PAGE;
     IsaReport r = isa_rewrite_apply(&t, image, stubs, CPU_SET_SSE4A);
     assert(r.rewritten == 1 && r.skipped == 0);
+#ifdef _WIN32
+    assert(FlushInstructionCache(GetCurrentProcess(), image, PAGE));
+    assert(FlushInstructionCache(GetCurrentProcess(), stubs, ISA_STUB_BYTES));
+#endif
     trap_table = &t;
     for (int round = 0; round < rounds; round++) {
         State in, want, got;
         random_state(&in);
         if (kind == ISA_EXTRQ || kind == ISA_INSERTQ) {
             /* Half the time a valid field (index + length <= 64) in the control word. */
-            const unsigned l = (unsigned)(next() % 64), i = l ? (unsigned)(next() % (65 - l)) : 0;
+            const unsigned l = sweep_fields ? length : (unsigned)(next() % 64);
+            const unsigned i = sweep_fields ? index : l ? (unsigned)(next() % (65 - l)) : 0;
             uint64_t control = (next() & ~0x3f3full) | l | (uint64_t)i << 8;
-            if (round & 1 && src != dst) memcpy(&in.ymm[src][kind == ISA_INSERTQ ? 8 : 0], &control, 8);
+            if (sweep_fields || (round & 1 && src != dst)) memcpy(&in.ymm[src][kind == ISA_INSERTQ ? 8 : 0], &control, 8);
         }
         memcpy(&want, &in, sizeof want);
         memcpy(&got, &in, sizeof got);
@@ -405,15 +412,26 @@ static void test_sites(void) {
                 uint8_t probe[16];
                 const size_t n = encode(probe, kinds[k], dst, src, length, index);
                 if (n == 4) {
-                    run_site(kinds[k], dst, src, length, index, ISA_MODE_INT3, 8);
+                    if (!jumps_only) run_site(kinds[k], dst, src, length, index, ISA_MODE_INT3, 8);
                     run_site(kinds[k], dst, src, length, index, ISA_MODE_JMP_RELOCATE, 8);
                 } else {
                     run_site(kinds[k], dst, src, length, index, ISA_MODE_JMP, 8);
                 }
             }
     /* The site of the Windows crash (inFAMOUS 1.07, 0x8938f1): extrq xmm4, xmm7. */
-    run_site(ISA_EXTRQ, 4, 7, 0, 0, ISA_MODE_INT3, 2000);
+    if (!jumps_only) run_site(ISA_EXTRQ, 4, 7, 0, 0, ISA_MODE_INT3, 2000);
     run_site(ISA_EXTRQ, 4, 7, 0, 0, ISA_MODE_JMP_RELOCATE, 2000);
+    sweep_fields = 1;
+    for (unsigned length = 0; length < 64; ++length)
+        for (unsigned index = 0; index < 64; ++index) {
+            run_site(ISA_EXTRQ_IMM, 15, 0, length, index, ISA_MODE_JMP, 1);
+            run_site(ISA_EXTRQ, 8, 15, length, index, ISA_MODE_JMP, 1);
+            run_site(ISA_EXTRQ, 15, 15, length, index, ISA_MODE_JMP, 1);
+        }
+    sweep_fields = 0;
+    stubs += 3;
+    run_site(ISA_EXTRQ, 8, 15, 0, 0, ISA_MODE_JMP, 16);
+    stubs -= 3;
 }
 
 static void test_table_records(void) {
@@ -438,7 +456,85 @@ static void test_table_records(void) {
     assert(isa_rewrite_apply(&t, image, stubs, CPU_SET_SSE4A).unsupported_needed == 1);
 }
 
-int main(void) {
+static double now_ns(void) {
+#ifdef _WIN32
+    LARGE_INTEGER frequency, value;
+    assert(QueryPerformanceFrequency(&frequency) && QueryPerformanceCounter(&value));
+    return (double)value.QuadPart * 1e9 / (double)frequency.QuadPart;
+#else
+    struct timespec value;
+    assert(!clock_gettime(CLOCK_MONOTONIC, &value));
+    return (double)value.tv_sec * 1e9 + value.tv_nsec;
+#endif
+}
+
+static void inline_option(const char *value) {
+#ifdef _WIN32
+    assert(!_putenv_s("TLG_SSE4A_INLINE", value ? value : ""));
+#else
+    if (value) assert(!setenv("TLG_SSE4A_INLINE", value, 1));
+    else assert(!unsetenv("TLG_SSE4A_INLINE"));
+#endif
+}
+
+static void benchmark(void) {
+    const char *option = getenv("TLG_SSE4A_INLINE");
+    char *saved = option ? strdup(option) : NULL;
+    const uint32_t iterations = 1000000;
+    for (unsigned kind = ISA_EXTRQ; kind <= ISA_EXTRQ_IMM; ++kind) {
+        double timing[2];
+        for (int fast = 0; fast < 2; ++fast) {
+            inline_option(fast ? "1" : "0");
+            IsaSite site = sse4a_site((uint8_t)kind, 0, 15, 8, 16);
+            site.offset = SITE_AT;
+            /* High source register makes the register form long enough for a direct jump. */
+            site.length = (uint8_t)encode(site.original, (uint8_t)kind, 0, 15, 8, 16);
+            site.mode = ISA_MODE_JMP;
+            memcpy(image + SITE_AT, site.original, site.length);
+            image[SITE_AT + site.length] = 0xc3;
+            uint64_t hits = 0;
+            IsaTable table = {.sites=&site, .hits=&hits, .count=1, .image_size=PAGE};
+            assert(isa_rewrite_apply(&table, image, stubs, CPU_SET_SSE4A).rewritten == 1);
+            /* SysV JIT: load xmm0/xmm15, loop over the patched instruction, store xmm0. */
+            uint8_t *p = jit;
+            const uint8_t load[] = {0xf3,0x0f,0x6f,0x07, 0xf3,0x44,0x0f,0x6f,0x7f,0x10};
+            memcpy(p, load, sizeof load); p += sizeof load;
+            *p++=0xb9; memcpy(p, &iterations, 4); p+=4;
+            *p++=0xe8;
+            const intptr_t distance = (image + SITE_AT) - (p + 4);
+            assert(distance >= INT32_MIN && distance <= INT32_MAX);
+            const int32_t relative = (int32_t)distance;
+            memcpy(p, &relative, 4); p+=4;
+            const uint8_t tail[] = {0xff,0xc9,0x75,0xf7,0xf3,0x0f,0x7f,0x07,0xc3};
+            memcpy(p, tail, sizeof tail);
+#ifdef _WIN32
+            assert(FlushInstructionCache(GetCurrentProcess(), image, 4 * PAGE));
+#endif
+            timing[fast] = 1e100;
+            for (unsigned round = 0; round < 3; ++round) {
+                uint64_t values[4] = {0x0123456789abcdefull, 0, 0x1008, 0};
+                const double start = now_ns();
+                ((Jit)(void *)jit)(values);
+                const double per_operation = (now_ns() - start) / iterations;
+                if (per_operation < timing[fast]) timing[fast] = per_operation;
+                assert(values[0] == 0 && values[1] == 0);
+            }
+            assert(hits == 3ull * iterations);
+        }
+        printf("EXTRQ %s microbenchmark (best of 3): legacy %.2f ns/op, inline %.2f ns/op, %.2fx; not game FPS\n",
+               kind == ISA_EXTRQ ? "register" : "immediate", timing[0], timing[1], timing[0]/timing[1]);
+    }
+    inline_option(saved);
+    free(saved);
+}
+
+int main(int argc, char **argv) {
+    int bench = 0;
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--jumps-only")) jumps_only = 1;
+        else if (!strcmp(argv[i], "--benchmark")) bench = 1;
+        else { fprintf(stderr, "Unknown option: %s\n", argv[i]); return 2; }
+    }
 #ifdef _WIN32
     unsigned char *region = VirtualAlloc(NULL, 4 * PAGE, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     assert(region != NULL);
@@ -464,6 +560,8 @@ int main(void) {
     test_against_cpu();
     test_table_records();
     test_sites();
+    if (jumps_only) puts("Scope: JMP/relocation state checks; unchanged INT3 path excluded (Windows red-zone fixture limitation)");
+    if (bench) benchmark();
     printf("isa-sse4a-test ok (%s: %llu operand sets against the CPU; sites: %u jmp, %u relocated, %u int3)\n",
            native ? "SSE4A host, CPU as oracle" : "no SSE4A, recorded AMD results and model", compared,
            sites_run[ISA_MODE_JMP], sites_run[ISA_MODE_JMP_RELOCATE], sites_run[ISA_MODE_INT3]);

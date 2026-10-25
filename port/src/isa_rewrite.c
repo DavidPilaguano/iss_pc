@@ -275,6 +275,99 @@ static size_t emit_return(unsigned char *code, unsigned char *p, const unsigned 
     return (size_t)(p - code);
 }
 
+/* Legacy SSE2 instructions leave upper YMM lanes and flags untouched. */
+static void emit_sse_rr(unsigned char **p, uint8_t opcode, int dst, int src) {
+    emit_u8(p, 0x66);
+    if (dst >= 8 || src >= 8) emit_u8(p, (uint8_t)(0x40 | (dst >= 8 ? 4 : 0) | (src >= 8 ? 1 : 0)));
+    emit_bytes(p, (const uint8_t[]){0x0f, opcode, (uint8_t)(0xc0 | (dst & 7) << 3 | (src & 7))}, 3);
+}
+static void emit_shiftq(unsigned char **p, int xmm, unsigned count, int left) {
+    if (!count) return;
+    emit_u8(p, 0x66);
+    if (xmm >= 8) emit_u8(p, 0x41);
+    emit_bytes(p, (const uint8_t[]){0x0f, 0x73, (uint8_t)((left ? 0xf0 : 0xd0) | (xmm & 7)), (uint8_t)count}, 4);
+}
+static unsigned char *emit_sse_rip(unsigned char **p, uint8_t opcode, int dst) {
+    emit_u8(p, opcode == 0x6f ? 0xf3 : 0x66);
+    if (dst >= 8) emit_u8(p, 0x44);
+    emit_bytes(p, (const uint8_t[]){0x0f, opcode, (uint8_t)(0x05 | (dst & 7) << 3)}, 3);
+    unsigned char *disp = *p;
+    emit_u32(p, 0);
+    return disp;
+}
+
+/* Inline EXTRQ, without a C call or flag-changing instructions. The counter's
+ * load/LEA/store has the same non-atomic semantics as its previous INC, but avoids
+ * PUSHFQ/POPFQ. Register fields use two preserved scratch XMMs; immediate fields
+ * need no scratch SIMD register. Length zero, aliases and high YMM lanes match
+ * isa_emulate_sse4a and the recorded AMD results. */
+static size_t emit_extrq_inline(unsigned char *code, const unsigned char *at,
+                                const IsaSite *s, uint64_t *hit,
+                                unsigned char *image, int protect) {
+    unsigned char *p = code;
+    emit_bytes(&p, lea_rsp_below_red_zone, sizeof lea_rsp_below_red_zone);
+    emit_bytes(&p, (const uint8_t[]){0x50, 0x52, 0x48, 0xba}, 4); /* rax, rdx, movabs rdx */
+    emit_u64(&p, (uint64_t)(uintptr_t)hit);
+    emit_bytes(&p, (const uint8_t[]){0x48,0x8b,0x02, 0x48,0x8d,0x40,1, 0x48,0x89,0x02, 0x5a,0x58}, 12);
+    emit_bytes(&p, lea_rsp_above_red_zone, sizeof lea_rsp_above_red_zone);
+    unsigned char *mask_refs[3] = {0}, *sixty_four_ref = NULL;
+    int a = 0, b = 0;
+    if (s->kind == ISA_EXTRQ_IMM) {
+        const unsigned length = (unsigned)s->disp & 63;
+        const unsigned index = (unsigned)((uint64_t)s->disp >> 8) & 63;
+        emit_shiftq(&p, s->dst, index, 0);
+        if (length && length < 64 - index) {
+            emit_shiftq(&p, s->dst, 64 - length, 1);
+            emit_shiftq(&p, s->dst, 64 - length, 0);
+        }
+    } else {
+        while (a == s->dst || a == s->src1) ++a;
+        b = a + 1;
+        while (b == s->dst || b == s->src1) ++b;
+        /* Scratch space is below the guest's 128-byte red zone. */
+        emit_bytes(&p, (const uint8_t[]){0x48,0x8d,0xa4,0x24,0x60,0xff,0xff,0xff}, 8);
+        emit_movdqu_rsp(&p, 1, a, 0);
+        emit_movdqu_rsp(&p, 1, b, 16);
+        emit_sse_rr(&p, 0x6f, a, s->src1);
+        emit_sse_rr(&p, 0x6f, b, s->src1); /* capture both fields before dst changes (alias safe) */
+        emit_shiftq(&p, a, 8, 0);
+        mask_refs[0] = emit_sse_rip(&p, 0xdb, a); /* index &= 63 */
+        emit_sse_rr(&p, 0xd3, s->dst, a);         /* dst >>= index */
+        mask_refs[1] = emit_sse_rip(&p, 0xdb, b); /* length &= 63 */
+        sixty_four_ref = emit_sse_rip(&p, 0x6f, a);
+        emit_sse_rr(&p, 0xfb, a, b);             /* 64 - length */
+        mask_refs[2] = emit_sse_rip(&p, 0xdb, a); /* length 0 -> shift 0, not 64 */
+        emit_sse_rr(&p, 0x76, b, b);             /* all ones */
+        emit_sse_rr(&p, 0xd3, b, a);             /* mask of length bits */
+        emit_sse_rr(&p, 0xdb, s->dst, b);
+    }
+    /* Legacy MOVQ xmm,xmm clears only bits 127:64, preserving YMM[255:128]. */
+    emit_u8(&p, 0xf3);
+    if (s->dst >= 8) emit_u8(&p, 0x45);
+    emit_bytes(&p, (const uint8_t[]){0x0f,0x7e,(uint8_t)(0xc0 | (s->dst & 7) << 3 | (s->dst & 7))}, 3);
+    if (s->kind == ISA_EXTRQ) {
+        emit_movdqu_rsp(&p, 0, a, 0);
+        emit_movdqu_rsp(&p, 0, b, 16);
+        emit_bytes(&p, (const uint8_t[]){0x48,0x8d,0xa4,0x24,0xa0,0,0,0}, 8);
+    }
+    size_t size = emit_return(code, p, at, s, image, protect);
+    if (!size || s->kind == ISA_EXTRQ_IMM) return size;
+    p = code + size;
+    /* PAND's m128 operand is aligned at its execution address, including callers
+     * that supply an unaligned stub arena. */
+    while (((uintptr_t)at + (size_t)(p - code)) % 16) emit_u8(&p, 0);
+    unsigned char *mask = p;
+    emit_u64(&p, 63); emit_u64(&p, 0);
+    unsigned char *sixty_four = p;
+    emit_u64(&p, 64); emit_u64(&p, 0);
+    for (unsigned i = 0; i < 3; ++i) {
+        unsigned char *disp = mask_refs[i];
+        emit_u32(&disp, (uint32_t)(mask - (mask_refs[i] + 4)));
+    }
+    emit_u32(&sixty_four_ref, (uint32_t)(sixty_four - (sixty_four_ref + 4)));
+    return (size_t)(p - code);
+}
+
 /* SSE4A stub: the operands are XMM registers, which isa_emulate's IsaRegs does not carry. It steps
  * over the red zone, saves rflags (then clears DF for the C call) and the registers the SysV ABI
  * lets isa_emulate_sse4a clobber, copies the destination and source XMM to a 32-byte buffer, calls
@@ -282,6 +375,10 @@ static size_t emit_return(unsigned char *code, unsigned char *p, const unsigned 
  * the YMM register stay as they were, and no other XMM register is touched. */
 static size_t emit_sse4a_stub(unsigned char *code, const unsigned char *at, const IsaSite *s, uint64_t *hit,
                               unsigned char *image, int protect) {
+    const char *inline_option = getenv("TLG_SSE4A_INLINE");
+    if ((s->kind == ISA_EXTRQ || s->kind == ISA_EXTRQ_IMM) &&
+        (!inline_option || inline_option[0] != '0'))
+        return emit_extrq_inline(code, at, s, hit, image, protect);
     static const uint8_t pushes[] = {0x50, 0x51, 0x52, 0x56, 0x57, 0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41, 0x53, 0x55};
     static const uint8_t pops[] = {0x5d, 0x41, 0x5b, 0x41, 0x5a, 0x41, 0x59, 0x41, 0x58, 0x5f, 0x5e, 0x5a, 0x59, 0x58};
     unsigned char *p = code;
@@ -422,6 +519,16 @@ IsaReport isa_rewrite_apply(IsaTable *t, unsigned char *image, unsigned char *st
     for (uint32_t i = 0; i < t->count; i++)
         if (t->sites[i].mode == ISA_MODE_UNSUPPORTED && (isa_site_set(&t->sites[i]) & sets)) report.unsupported_needed++;
     if (report.unsupported_needed) return report;
+    if (sets & CPU_SET_SSE4A) {
+        const char *option = getenv("TLG_SSE4A_INLINE");
+        const int enabled = !option || option[0] != '0';
+        static int announced = -1;
+        if (announced != enabled) {
+            printf("ISA: EXTRQ adaptation %s; INSERTQ/INT3 keep the existing fallback\n",
+                   enabled ? "inline SSE2" : "C helper (TLG_SSE4A_INLINE=0)");
+            announced = enabled;
+        }
+    }
     for (uint32_t i = 0; i < t->count; i++) {
         const IsaSite *s = &t->sites[i];
         if (s->mode == ISA_MODE_UNSUPPORTED || !(isa_site_set(s) & sets)) continue;

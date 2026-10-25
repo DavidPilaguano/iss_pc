@@ -25,6 +25,9 @@ rama local `developer`. Cambios del fork preparados el 25 de octubre de 2026:
 - Conexión de ajustes en vivo del launcher al runtime, escrituras atómicas del INI
   y accesos locales que respetan la configuración editable. Ver
   [LAUNCHER_SETTINGS.md](port/docs/LAUNCHER_SETTINGS.md).
+- Adaptación directa SSE2 de EXTRQ para CPUs sin SSE4A, conservando la infraestructura
+  y el modelo de referencia originales. Pruebas y límites en
+  [SSE4A_OPTIMIZATION.md](port/docs/SSE4A_OPTIMIZATION.md).
 
 El objetivo de 8 GB y 30 FPS estables **no está demostrado**. Los resultados medidos,
 las condiciones y las limitaciones están en
